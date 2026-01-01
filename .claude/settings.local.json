@@ -52,7 +52,15 @@
       "Bash(yt-dlp:*)",
       "Bash(\"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\pip.exe\" install -r \"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\requirements.txt\")",
       "Bash(\"C:\\\\Users\\\\91942\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Packages\\\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\\\ffmpeg-8.0.1-full_build\\\\bin\\\\ffmpeg.exe\" -version)",
-      "Bash(setx:*)"
+      "Bash(setx:*)",
+      "Bash(\"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c \"import whisper; import yt_dlp; print\\(''All imports OK''\\)\")",
+      "Bash(\"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" main.py)",
+      "Bash(\"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c:*)",
+      "Bash(\"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c \"\nimport whisper\nimport tempfile\nimport os\n\n# Use the file we just downloaded\naudio_file = r''C:\\\\Users\\\\91942\\\\AppData\\\\Local\\\\Temp\\\\tmpgky0x9wo\\\\test.webm''\n\nif os.path.exists\\(audio_file\\):\n    print\\(''Loading Whisper model...''\\)\n    model = whisper.load_model\\(''base''\\)\n    print\\(''Transcribing...''\\)\n    result = model.transcribe\\(audio_file\\)\n    print\\(''Transcript:'', result[''text''][:200]\\)\nelse:\n    print\\(''File not found''\\)\n\")",
+      "Bash(\"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c \"\nimport os\n# Add FFmpeg to PATH first\nFFMPEG_PATH = r''C:\\\\Users\\\\91942\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Packages\\\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\\\ffmpeg-8.0.1-full_build\\\\bin''\nos.environ[''PATH''] = FFMPEG_PATH + os.pathsep + os.environ.get\\(''PATH'', ''''\\)\n\nimport whisper\n\naudio_file = r''C:\\\\Users\\\\91942\\\\AppData\\\\Local\\\\Temp\\\\tmpgky0x9wo\\\\test.webm''\n\nif os.path.exists\\(audio_file\\):\n    print\\(''Loading Whisper model...''\\)\n    model = whisper.load_model\\(''base''\\)\n    print\\(''Transcribing...''\\)\n    result = model.transcribe\\(audio_file\\)\n    print\\(''SUCCESS!''\\)\n    print\\(''Transcript:'', result[''text''][:300]\\)\nelse:\n    print\\(''File not found - already cleaned up''\\)\n\")",
+      "Bash(start /B \"\" \"C:\\\\Users\\\\91942\\\\n8n_MCP\\\\transcript scraper\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" main.py)",
+      "Bash(netstat:*)",
+      "Bash(taskkill /F /PID 9304)"
     ]
   }
 }

@@ -81,15 +81,13 @@ async def transcribe_video(request: TranscribeRequest):
             'format': 'bestaudio/best',
             'outtmpl': output_template,
             'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'ffmpeg_location': FFMPEG_PATH,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
+            'quiet': False,
+            'no_warnings': False,
         }
+
+        # Only add ffmpeg_location if path exists
+        if FFMPEG_PATH and os.path.exists(FFMPEG_PATH):
+            ydl_opts['ffmpeg_location'] = FFMPEG_PATH
 
         # Add cookies file if it exists (required for Instagram, TikTok, etc.)
         if COOKIES_FILE and os.path.exists(COOKIES_FILE):
