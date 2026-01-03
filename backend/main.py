@@ -10,11 +10,17 @@ from pydantic import BaseModel
 from groq import Groq
 
 # Cookies file path for Instagram/TikTok authentication (optional)
-# Render mounts secret files at /etc/secrets/
-COOKIES_FILE = os.environ.get("COOKIES_FILE", "/etc/secrets/cookies.txt")
+# Render mounts secret files at /etc/secrets/ (read-only)
+COOKIES_SOURCE = os.environ.get("COOKIES_FILE", "/etc/secrets/cookies.txt")
 # Fallback to local cookies.txt for local development
-if not os.path.exists(COOKIES_FILE):
-    COOKIES_FILE = "cookies.txt"
+if not os.path.exists(COOKIES_SOURCE):
+    COOKIES_SOURCE = "cookies.txt"
+
+# Copy cookies to writable location (yt-dlp may try to update them)
+COOKIES_FILE = "/tmp/cookies.txt"
+if os.path.exists(COOKIES_SOURCE):
+    shutil.copy(COOKIES_SOURCE, COOKIES_FILE)
+    print(f"Copied cookies from {COOKIES_SOURCE} to {COOKIES_FILE}")
 
 # Groq API key
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -38,9 +44,9 @@ print("Groq Whisper API initialized!")
 
 # Log cookies file status
 if os.path.exists(COOKIES_FILE):
-    print(f"Cookies file found at: {COOKIES_FILE}")
+    print(f"Cookies file ready at: {COOKIES_FILE}")
 else:
-    print(f"No cookies file found (checked: {COOKIES_FILE})")
+    print(f"No cookies file found (checked: {COOKIES_SOURCE})")
 
 
 class TranscribeRequest(BaseModel):
