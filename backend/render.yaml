@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: video-transcriber
+    runtime: docker
+    plan: free
+    envVars:
+      - key: WHISPER_MODEL
+        value: tiny
+      - key: PORT
+        value: 10000
