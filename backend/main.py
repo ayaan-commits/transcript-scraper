@@ -419,69 +419,75 @@ HTML_TEMPLATE = '''
         </div>
 
         <!-- Result -->
-        <div id="result" class="hidden space-y-6">
-            <!-- Video info card -->
+        <div id="result" class="hidden">
+            <!-- Compact card with thumbnail + transcript -->
             <div class="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10">
-                <div class="flex flex-col md:flex-row">
-                    <div class="md:w-72 flex-shrink-0">
-                        <img id="thumbnail" src="" alt="Video thumbnail" class="w-full h-full object-cover aspect-video md:aspect-auto">
+                <div class="flex flex-col lg:flex-row">
+                    <!-- Left: Thumbnail -->
+                    <div class="lg:w-80 flex-shrink-0 bg-black/20">
+                        <img id="thumbnail" src="" alt="Video thumbnail" class="w-full h-64 lg:h-full object-cover">
                     </div>
-                    <div class="p-6 flex-1">
-                        <h2 id="videoTitle" class="text-xl font-bold text-white mb-3 line-clamp-2"></h2>
-                        <div class="flex flex-wrap gap-3 mb-4">
-                            <span class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-medium">
-                                <i class="fas fa-check mr-1"></i>Success
-                            </span>
-                            <span id="langBadge" class="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm">
-                                <i class="fas fa-language mr-1"></i><span></span>
-                            </span>
-                            <span id="durationBadge" class="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm">
-                                <i class="fas fa-clock mr-1"></i><span></span>
-                            </span>
-                        </div>
-                        <!-- Download buttons -->
-                        <div class="flex flex-wrap gap-2">
-                            <button onclick="downloadTXT()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-all flex items-center gap-2">
-                                <i class="fas fa-file-alt"></i>TXT
-                            </button>
-                            <button onclick="downloadSRT()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-all flex items-center gap-2">
-                                <i class="fas fa-closed-captioning"></i>SRT
-                            </button>
-                            <button onclick="downloadVTT()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-all flex items-center gap-2">
-                                <i class="fas fa-closed-captioning"></i>VTT
-                            </button>
-                            <button onclick="copyTranscript()" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-sm transition-all flex items-center gap-2">
-                                <i class="fas fa-copy"></i><span id="copyText">Copy</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            <!-- AI Summary -->
-            <div id="summarySection" class="bg-gradient-to-r from-purple-500/10 to-blue-500/10 backdrop-blur-sm rounded-2xl p-6 border border-purple-500/20">
-                <h3 class="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-                    <i class="fas fa-robot text-purple-400"></i>AI Summary
-                </h3>
-                <p id="summary" class="text-gray-300 leading-relaxed"></p>
-            </div>
+                    <!-- Right: Content -->
+                    <div class="flex-1 flex flex-col">
+                        <!-- Header -->
+                        <div class="p-5 border-b border-white/10">
+                            <h2 id="videoTitle" class="text-lg font-bold text-white mb-3 line-clamp-2"></h2>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                <span class="px-2 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-medium">
+                                    <i class="fas fa-check mr-1"></i>Success
+                                </span>
+                                <span id="langBadge" class="px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full text-xs">
+                                    <i class="fas fa-language mr-1"></i><span></span>
+                                </span>
+                                <span id="durationBadge" class="px-2 py-1 bg-purple-500/20 text-purple-400 rounded-full text-xs">
+                                    <i class="fas fa-clock mr-1"></i><span></span>
+                                </span>
+                            </div>
+                            <!-- Download buttons -->
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="downloadTXT()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all flex items-center gap-1">
+                                    <i class="fas fa-file-alt"></i>TXT
+                                </button>
+                                <button onclick="downloadSRT()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all flex items-center gap-1">
+                                    <i class="fas fa-closed-captioning"></i>SRT
+                                </button>
+                                <button onclick="downloadVTT()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all flex items-center gap-1">
+                                    <i class="fas fa-closed-captioning"></i>VTT
+                                </button>
+                                <button onclick="copyTranscript()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-xs transition-all flex items-center gap-1">
+                                    <i class="fas fa-copy"></i><span id="copyText">Copy</span>
+                                </button>
+                            </div>
+                        </div>
 
-            <!-- Transcript -->
-            <div class="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10">
-                <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-white flex items-center gap-2">
-                        <i class="fas fa-file-lines text-gray-400"></i>Transcript
-                    </h3>
-                    <div class="flex gap-2">
-                        <button onclick="showPlainTranscript()" id="plainBtn" class="px-3 py-1 bg-purple-600 rounded-lg text-white text-sm">Plain</button>
-                        <button onclick="showTimestampTranscript()" id="timestampBtn" class="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm">Timestamps</button>
-                    </div>
-                </div>
-                <div class="p-6">
-                    <div id="transcriptPlain" class="bg-black/30 rounded-xl p-5 max-h-96 overflow-y-auto">
-                        <p id="transcript" class="text-gray-200 whitespace-pre-wrap leading-relaxed"></p>
-                    </div>
-                    <div id="transcriptTimestamps" class="hidden bg-black/30 rounded-xl p-5 max-h-96 overflow-y-auto space-y-3">
+                        <!-- AI Summary (compact) -->
+                        <div id="summarySection" class="px-5 py-3 bg-purple-500/5 border-b border-white/10">
+                            <div class="flex items-start gap-2">
+                                <i class="fas fa-robot text-purple-400 mt-1"></i>
+                                <p id="summary" class="text-gray-300 text-sm leading-relaxed"></p>
+                            </div>
+                        </div>
+
+                        <!-- Transcript -->
+                        <div class="flex-1 flex flex-col min-h-0">
+                            <div class="px-5 py-3 border-b border-white/10 flex items-center justify-between">
+                                <span class="text-sm font-medium text-gray-400">
+                                    <i class="fas fa-file-lines mr-2"></i>Transcript
+                                </span>
+                                <div class="flex gap-1">
+                                    <button onclick="showPlainTranscript()" id="plainBtn" class="px-2 py-1 bg-purple-600 rounded text-white text-xs">Plain</button>
+                                    <button onclick="showTimestampTranscript()" id="timestampBtn" class="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-white text-xs">Timestamps</button>
+                                </div>
+                            </div>
+                            <div class="flex-1 p-4 overflow-hidden">
+                                <div id="transcriptPlain" class="h-64 lg:h-80 overflow-y-auto bg-black/20 rounded-lg p-4">
+                                    <p id="transcript" class="text-gray-200 text-sm whitespace-pre-wrap leading-relaxed"></p>
+                                </div>
+                                <div id="transcriptTimestamps" class="hidden h-64 lg:h-80 overflow-y-auto bg-black/20 rounded-lg p-4 space-y-2">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
