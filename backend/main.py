@@ -7,21 +7,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-
-# FFmpeg path (adjust if needed, or use system ffmpeg on Replit)
-FFMPEG_PATH = os.environ.get("FFMPEG_PATH", r"C:\Users\91942\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin")
+from groq import Groq
 
 # Cookies file path for Instagram/TikTok authentication (optional)
 COOKIES_FILE = os.environ.get("COOKIES_FILE", "cookies.txt")
 
-# Add ffmpeg to PATH before importing whisper (it needs ffmpeg)
-if FFMPEG_PATH:
-    os.environ["PATH"] = FFMPEG_PATH + os.pathsep + os.environ.get("PATH", "")
+# Groq API key
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-import whisper
 import yt_dlp
 
-app = FastAPI(title="Video Transcription API", version="1.0.0")
+app = FastAPI(title="Video Transcription API", version="2.0.0")
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -32,11 +28,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load Whisper model at startup (tiny for low-memory environments)
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "tiny")
-print(f"Loading Whisper model ({WHISPER_MODEL})...")
-model = whisper.load_model(WHISPER_MODEL)
-print("Whisper model loaded successfully!")
+# Initialize Groq client
+client = Groq(api_key=GROQ_API_KEY)
+print("Groq Whisper API initialized!")
 
 
 class TranscribeRequest(BaseModel):
@@ -85,11 +79,12 @@ async def transcribe_video(request: TranscribeRequest):
             'noplaylist': True,
             'quiet': False,
             'no_warnings': False,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
         }
-
-        # Only add ffmpeg_location if path exists
-        if FFMPEG_PATH and os.path.exists(FFMPEG_PATH):
-            ydl_opts['ffmpeg_location'] = FFMPEG_PATH
 
         # Add cookies file if it exists (required for Instagram, TikTok, etc.)
         if COOKIES_FILE and os.path.exists(COOKIES_FILE):
@@ -120,23 +115,26 @@ async def transcribe_video(request: TranscribeRequest):
 
         print(f"Audio downloaded: {audio_file}")
 
-        # Transcribe using Whisper
-        print("Starting transcription...")
-        result = model.transcribe(audio_file)
+        # Transcribe using Groq Whisper API
+        print("Starting transcription with Groq Whisper...")
 
-        transcript = result.get("text", "").strip()
-        language = result.get("language", "unknown")
+        with open(audio_file, "rb") as f:
+            transcription = client.audio.transcriptions.create(
+                file=(os.path.basename(audio_file), f.read()),
+                model="whisper-large-v3-turbo",
+                response_format="verbose_json",
+            )
 
-        # Calculate approximate duration from segments
-        segments = result.get("segments", [])
-        duration = segments[-1]["end"] if segments else 0
+        transcript = transcription.text.strip()
+        language = getattr(transcription, 'language', 'unknown')
+        duration = getattr(transcription, 'duration', 0)
 
         print(f"Transcription complete. Language: {language}, Duration: {duration}s")
 
         return TranscribeResponse(
             success=True,
             transcript=transcript,
-            duration=round(duration, 2),
+            duration=round(duration, 2) if duration else None,
             language=language
         )
 
@@ -231,7 +229,7 @@ HTML_TEMPLATE = '''
         </div>
 
         <footer class="text-center mt-16 text-gray-500 text-sm">
-            <p>Powered by OpenAI Whisper & yt-dlp</p>
+            <p>Powered by Groq Whisper API & yt-dlp</p>
         </footer>
     </div>
 

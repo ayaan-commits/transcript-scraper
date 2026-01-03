@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: free
     envVars:
-      - key: WHISPER_MODEL
-        value: tiny
+      - key: GROQ_API_KEY
+        sync: false
       - key: PORT
         value: 10000

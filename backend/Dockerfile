@@ -25,5 +25,5 @@ COPY --chown=user main.py .
 # Expose port (configurable via PORT env var)
 EXPOSE 10000
 
-# Run the application
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}
+# Run the application with shell to expand PORT variable
+CMD ["/bin/sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
