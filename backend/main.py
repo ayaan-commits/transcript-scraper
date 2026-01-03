@@ -106,6 +106,18 @@ class ScriptResponse(BaseModel):
     error: str | None = None
 
 
+class AskAIRequest(BaseModel):
+    transcript: str
+    question: str
+    chat_history: list = []  # Previous Q&A for context
+
+
+class AskAIResponse(BaseModel):
+    success: bool
+    answer: str | None = None
+    error: str | None = None
+
+
 # ============ Helper Functions ============
 
 def get_ydl_opts():
@@ -221,6 +233,63 @@ Please create the content based on the transcript and the user's request."""
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Failed to generate script: {e}")
+        raise e
+
+
+def ask_ai_about_video(transcript: str, question: str, chat_history: list = []) -> str:
+    """Answer questions about video content using Groq LLM."""
+
+    system_message = """You are an intelligent AI assistant that helps users understand video content. You have access to the full transcript of a video and can answer any questions about it.
+
+Your capabilities:
+- Explain what happens in the video
+- Summarize specific parts or topics
+- Answer factual questions about the content
+- Provide context and background information
+- Explain concepts mentioned in the video
+- Identify key points, themes, and takeaways
+- Clarify confusing parts
+
+Guidelines:
+- Base your answers primarily on the transcript content
+- Be concise but thorough
+- If something isn't mentioned in the transcript, say so
+- Use a friendly, helpful tone
+- Format responses clearly with bullet points or sections when helpful"""
+
+    # Build messages with chat history for context
+    messages = [{"role": "system", "content": system_message}]
+
+    # Add transcript context
+    messages.append({
+        "role": "user",
+        "content": f"Here is the video transcript for context:\n\n---\n{transcript[:8000]}\n---\n\nI'll now ask you questions about this video."
+    })
+    messages.append({
+        "role": "assistant",
+        "content": "I've read the transcript. Feel free to ask me anything about this video - I can explain what happens, summarize parts, answer questions, or help you understand any concepts mentioned."
+    })
+
+    # Add chat history (last 6 exchanges to stay within context limits)
+    for exchange in chat_history[-6:]:
+        if exchange.get("question"):
+            messages.append({"role": "user", "content": exchange["question"]})
+        if exchange.get("answer"):
+            messages.append({"role": "assistant", "content": exchange["answer"]})
+
+    # Add current question
+    messages.append({"role": "user", "content": question})
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Failed to answer question: {e}")
         raise e
 
 
@@ -436,6 +505,35 @@ async def generate_script_endpoint(request: ScriptRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Script generation failed: {str(e)}"
+        )
+
+
+@app.post("/ask-ai", response_model=AskAIResponse)
+async def ask_ai_endpoint(request: AskAIRequest):
+    """
+    Ask AI questions about the video content.
+    Supports chat history for follow-up questions.
+    """
+    try:
+        if not request.transcript:
+            raise HTTPException(status_code=400, detail="Transcript is required")
+        if not request.question:
+            raise HTTPException(status_code=400, detail="Question is required")
+
+        print(f"Answering question: {request.question[:50]}...")
+        answer = ask_ai_about_video(request.transcript, request.question, request.chat_history)
+
+        return AskAIResponse(
+            success=True,
+            answer=answer
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error answering question: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to answer question: {str(e)}"
         )
 
 
@@ -824,6 +922,62 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
                 </div>
+
+                <!-- Ask AI Section -->
+                <div class="p-5 border-t border-white/5">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-8 h-8 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-robot text-blue-400 text-sm"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-semibold">Ask AI</h3>
+                            <p class="text-gray-500 text-xs">Ask questions about this video content</p>
+                        </div>
+                    </div>
+
+                    <!-- Quick Question Chips -->
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <button onclick="askQuickQuestion('What is this video about?')" class="px-3 py-1.5 glass hover:bg-white/10 rounded-full text-gray-300 text-xs transition-all">
+                            What's this about?
+                        </button>
+                        <button onclick="askQuickQuestion('What are the main points discussed?')" class="px-3 py-1.5 glass hover:bg-white/10 rounded-full text-gray-300 text-xs transition-all">
+                            Main points
+                        </button>
+                        <button onclick="askQuickQuestion('Explain this in simple terms')" class="px-3 py-1.5 glass hover:bg-white/10 rounded-full text-gray-300 text-xs transition-all">
+                            Explain simply
+                        </button>
+                        <button onclick="askQuickQuestion('What can I learn from this?')" class="px-3 py-1.5 glass hover:bg-white/10 rounded-full text-gray-300 text-xs transition-all">
+                            Key takeaways
+                        </button>
+                    </div>
+
+                    <!-- Chat Messages Container -->
+                    <div id="chatContainer" class="mb-4 max-h-80 overflow-y-auto space-y-3 hidden">
+                    </div>
+
+                    <!-- Question Input -->
+                    <div class="flex gap-2">
+                        <input type="text" id="aiQuestion" placeholder="Ask anything about this video..."
+                            class="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-all text-sm"
+                            onkeypress="if(event.key === 'Enter') askAI()">
+                        <button onclick="askAI()" id="askAIBtn"
+                            class="px-5 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:from-gray-700 disabled:to-gray-600 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all flex items-center gap-2 btn-hover">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+
+                    <!-- AI Loading State -->
+                    <div id="aiLoading" class="hidden mt-3">
+                        <div class="flex items-center gap-3 p-3 glass rounded-xl">
+                            <div class="flex gap-1">
+                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0s"></div>
+                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                            </div>
+                            <span class="text-gray-400 text-sm">AI is thinking...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -955,6 +1109,7 @@ HTML_TEMPLATE = '''
                 if (data.success) {
                     currentData = data;
                     displayResult(data);
+                    clearChat(); // Reset chat for new video
                     showToast('Transcription completed successfully!', 'success');
                 } else {
                     errorText.textContent = data.detail || data.error || 'Transcription failed';
@@ -1271,6 +1426,117 @@ HTML_TEMPLATE = '''
         function copyScript() {
             navigator.clipboard.writeText(generatedScript);
             showToast('Script copied to clipboard!', 'success');
+        }
+
+        // ============ Ask AI Functions ============
+        let chatHistory = [];
+
+        function askQuickQuestion(question) {
+            document.getElementById('aiQuestion').value = question;
+            askAI();
+        }
+
+        function addChatMessage(content, isUser = false) {
+            const container = document.getElementById('chatContainer');
+            container.classList.remove('hidden');
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = isUser
+                ? 'flex justify-end'
+                : 'flex justify-start';
+
+            const bubble = document.createElement('div');
+            bubble.className = isUser
+                ? 'max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-gradient-to-r from-purple-600 to-purple-500 text-white text-sm'
+                : 'max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md glass text-gray-200 text-sm';
+
+            // Format AI responses with proper line breaks
+            if (!isUser) {
+                bubble.innerHTML = formatAIResponse(content);
+            } else {
+                bubble.textContent = content;
+            }
+
+            messageDiv.appendChild(bubble);
+            container.appendChild(messageDiv);
+
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function formatAIResponse(text) {
+            // Convert markdown-style formatting to HTML
+            return text
+                .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
+                .replace(/\\*(.+?)\\*/g, '<em>$1</em>')
+                .replace(/^- (.+)$/gm, '• $1')
+                .replace(/^(\\d+)\\. /gm, '<span class="text-purple-400">$1.</span> ')
+                .replace(/\\n/g, '<br>');
+        }
+
+        async function askAI() {
+            const questionInput = document.getElementById('aiQuestion');
+            const question = questionInput.value.trim();
+
+            if (!question) {
+                showToast('Please enter a question', 'error');
+                return;
+            }
+
+            if (!currentData || !currentData.transcript) {
+                showToast('Please transcribe a video first', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('askAIBtn');
+            const loading = document.getElementById('aiLoading');
+
+            // Add user message to chat
+            addChatMessage(question, true);
+            questionInput.value = '';
+
+            btn.disabled = true;
+            loading.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/ask-ai', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        transcript: currentData.transcript,
+                        question: question,
+                        chat_history: chatHistory
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Add AI response to chat
+                    addChatMessage(data.answer, false);
+
+                    // Update chat history
+                    chatHistory.push({
+                        question: question,
+                        answer: data.answer
+                    });
+                } else {
+                    showToast(data.detail || data.error || 'Failed to get answer', 'error');
+                }
+            } catch (err) {
+                showToast('Error: ' + (err.message || 'Failed to get answer'), 'error');
+            } finally {
+                loading.classList.add('hidden');
+                btn.disabled = false;
+            }
+        }
+
+        // Clear chat when new video is transcribed
+        function clearChat() {
+            chatHistory = [];
+            const container = document.getElementById('chatContainer');
+            container.innerHTML = '';
+            container.classList.add('hidden');
         }
     </script>
 </body>
