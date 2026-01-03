@@ -10,6 +10,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from groq import Groq
 from typing import Optional
+from supabase import create_client, Client
+from datetime import datetime
 
 # Cookies file path for Instagram/TikTok authentication (optional)
 # Render mounts secret files at /etc/secrets/ (read-only)
@@ -43,6 +45,16 @@ app.add_middleware(
 # Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 print("Groq Whisper API initialized!")
+
+# Initialize Supabase client
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")  # Use anon/public key for client-side auth
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    print("Supabase initialized!")
+else:
+    print("Supabase not configured - user features disabled")
 
 # Log cookies file status
 if os.path.exists(COOKIES_FILE):
@@ -115,6 +127,23 @@ class AskAIRequest(BaseModel):
 class AskAIResponse(BaseModel):
     success: bool
     answer: str | None = None
+    error: str | None = None
+
+
+class SaveTranscriptionRequest(BaseModel):
+    user_id: str
+    video_url: str
+    title: str
+    thumbnail: str | None = None
+    duration: int | None = None
+    transcript: str
+    summary: str | None = None
+    language: str | None = None
+
+
+class UserHistoryResponse(BaseModel):
+    success: bool
+    transcriptions: list = []
     error: str | None = None
 
 
@@ -537,6 +566,107 @@ async def ask_ai_endpoint(request: AskAIRequest):
         )
 
 
+@app.post("/save-transcription")
+async def save_transcription(request: SaveTranscriptionRequest):
+    """Save a transcription to user history."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="User features not available")
+
+    try:
+        data = {
+            "user_id": request.user_id,
+            "video_url": request.video_url,
+            "title": request.title,
+            "thumbnail": request.thumbnail,
+            "duration": request.duration,
+            "transcript": request.transcript,
+            "summary": request.summary,
+            "language": request.language,
+            "created_at": datetime.utcnow().isoformat()
+        }
+
+        result = supabase.table("transcriptions").insert(data).execute()
+        return {"success": True, "id": result.data[0]["id"] if result.data else None}
+    except Exception as e:
+        print(f"Error saving transcription: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save: {str(e)}")
+
+
+@app.get("/user-history/{user_id}")
+async def get_user_history(user_id: str):
+    """Get user's transcription history."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="User features not available")
+
+    try:
+        result = supabase.table("transcriptions")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .order("created_at", desc=True)\
+            .limit(50)\
+            .execute()
+
+        return UserHistoryResponse(success=True, transcriptions=result.data or [])
+    except Exception as e:
+        print(f"Error fetching history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+
+
+@app.delete("/delete-transcription/{transcription_id}")
+async def delete_transcription(transcription_id: str, user_id: str):
+    """Delete a transcription from history."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="User features not available")
+
+    try:
+        supabase.table("transcriptions")\
+            .delete()\
+            .eq("id", transcription_id)\
+            .eq("user_id", user_id)\
+            .execute()
+
+        return {"success": True}
+    except Exception as e:
+        print(f"Error deleting transcription: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+
+
+@app.get("/user-stats/{user_id}")
+async def get_user_stats(user_id: str):
+    """Get user usage statistics."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="User features not available")
+
+    try:
+        # Get total transcriptions count
+        result = supabase.table("transcriptions")\
+            .select("id", count="exact")\
+            .eq("user_id", user_id)\
+            .execute()
+
+        # Get user's subscription tier (from profiles table)
+        profile = supabase.table("profiles")\
+            .select("tier, transcriptions_this_month")\
+            .eq("id", user_id)\
+            .single()\
+            .execute()
+
+        tier_limits = {"free": 5, "pro": 100, "unlimited": 99999}
+        user_tier = profile.data.get("tier", "free") if profile.data else "free"
+        monthly_used = profile.data.get("transcriptions_this_month", 0) if profile.data else 0
+
+        return {
+            "success": True,
+            "total_transcriptions": result.count or 0,
+            "tier": user_tier,
+            "monthly_limit": tier_limits.get(user_tier, 5),
+            "monthly_used": monthly_used
+        }
+    except Exception as e:
+        print(f"Error fetching stats: {str(e)}")
+        return {"success": True, "total_transcriptions": 0, "tier": "free", "monthly_limit": 5, "monthly_used": 0}
+
+
 # ============ HTML Template ============
 
 HTML_TEMPLATE = '''
@@ -547,6 +677,7 @@ HTML_TEMPLATE = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Transcriber</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         :root { --bg-primary: #0a0a0f; --bg-secondary: #111118; --text-primary: #fff; --text-secondary: #9ca3af; --accent: #a855f7; }
@@ -601,9 +732,52 @@ HTML_TEMPLATE = '''
         .light-mode .bg-black\\/30 { background: rgba(0,0,0,0.05) !important; }
         .light-mode .bg-white\\/5, .light-mode .bg-white\\/10 { background: rgba(0,0,0,0.05) !important; }
         .light-mode .border-white\\/5, .light-mode .border-white\\/10 { border-color: rgba(0,0,0,0.1) !important; }
+        /* Loading Skeleton */
+        .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 100%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .skeleton-text { height: 16px; margin-bottom: 8px; }
+        .skeleton-title { height: 24px; width: 70%; margin-bottom: 12px; }
+        .skeleton-thumbnail { width: 100%; aspect-ratio: 16/9; border-radius: 12px; }
+        .skeleton-badge { height: 24px; width: 80px; border-radius: 20px; display: inline-block; }
+        .skeleton-button { height: 36px; width: 70px; border-radius: 8px; display: inline-block; }
+        .skeleton-line { height: 14px; margin-bottom: 6px; }
+        .skeleton-line:last-child { width: 60%; }
     </style>
 </head>
 <body class="min-h-screen bg-[#0a0a0f]">
+    <!-- User Menu (Top Left) -->
+    <div class="fixed top-5 left-5 z-50">
+        <div id="userMenuLoggedOut">
+            <button onclick="showAuthModal()" class="glass hover:bg-white/10 px-4 py-2 rounded-xl text-sm text-gray-300 flex items-center gap-2 transition-all">
+                <i class="fas fa-user"></i>
+                <span>Sign In</span>
+            </button>
+        </div>
+        <div id="userMenuLoggedIn" class="hidden">
+            <button onclick="toggleUserDropdown()" class="glass hover:bg-white/10 px-4 py-2 rounded-xl text-sm text-white flex items-center gap-2 transition-all">
+                <div class="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-xs font-bold" id="userAvatar">U</div>
+                <span id="userName" class="max-w-[100px] truncate">User</span>
+                <i class="fas fa-chevron-down text-xs"></i>
+            </button>
+            <div id="userDropdown" class="hidden absolute top-12 left-0 glass rounded-xl py-2 min-w-[180px] shadow-xl">
+                <div class="px-4 py-2 border-b border-white/10">
+                    <p class="text-xs text-gray-500">Plan</p>
+                    <p class="text-sm text-white flex items-center gap-2"><span id="userTier">Free</span><span id="usageCount" class="text-xs text-gray-500">0/5</span></p>
+                </div>
+                <button onclick="showHistoryModal()" class="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-white/10 flex items-center gap-2">
+                    <i class="fas fa-history"></i> My History
+                </button>
+                <button onclick="showPricingModal()" class="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-white/10 flex items-center gap-2">
+                    <i class="fas fa-crown text-yellow-500"></i> Upgrade
+                </button>
+                <hr class="border-white/10 my-1">
+                <button onclick="signOut()" class="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10 flex items-center gap-2">
+                    <i class="fas fa-sign-out-alt"></i> Sign Out
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Theme Toggle -->
     <div class="theme-toggle">
         <button onclick="toggleTheme()" class="theme-btn glass hover:bg-white/10" title="Toggle theme">
@@ -613,6 +787,121 @@ HTML_TEMPLATE = '''
 
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-strong rounded-2xl p-6 w-full max-w-md relative">
+            <button onclick="hideAuthModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+            <h2 class="text-xl font-bold text-white mb-2">Welcome</h2>
+            <p class="text-gray-400 text-sm mb-6">Sign in to save your transcriptions and access premium features</p>
+
+            <div id="authError" class="hidden mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm"></div>
+
+            <div id="authForm">
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-sm text-gray-400 mb-1 block">Email</label>
+                        <input type="email" id="authEmail" placeholder="you@example.com" class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400 mb-1 block">Password</label>
+                        <input type="password" id="authPassword" placeholder="••••••••" class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50">
+                    </div>
+                </div>
+
+                <button onclick="signInWithEmail()" id="authSubmitBtn" class="w-full mt-6 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 rounded-xl text-white font-semibold transition-all flex items-center justify-center gap-2">
+                    <span id="authSubmitText">Sign In</span>
+                </button>
+
+                <p class="text-center text-sm text-gray-500 mt-4">
+                    <span id="authToggleText">Don't have an account?</span>
+                    <button onclick="toggleAuthMode()" class="text-purple-400 hover:text-purple-300 ml-1" id="authToggleBtn">Sign Up</button>
+                </p>
+
+                <div class="relative my-6">
+                    <hr class="border-white/10">
+                    <span class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#1a1a2e] px-3 text-xs text-gray-500">or</span>
+                </div>
+
+                <button onclick="signInWithGoogle()" class="w-full px-6 py-3 glass hover:bg-white/10 rounded-xl text-white font-medium transition-all flex items-center justify-center gap-3">
+                    <img src="https://www.google.com/favicon.ico" class="w-5 h-5">
+                    Continue with Google
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-strong rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-hidden relative flex flex-col">
+            <button onclick="hideHistoryModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+            <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <i class="fas fa-history text-purple-400"></i> My Transcriptions
+            </h2>
+            <div id="historyList" class="flex-1 overflow-y-auto space-y-3">
+                <div class="text-center text-gray-500 py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                    <p>Loading history...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pricing Modal -->
+    <div id="pricingModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-strong rounded-2xl p-6 w-full max-w-3xl relative">
+            <button onclick="hidePricingModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+            <h2 class="text-xl font-bold text-white mb-2 text-center">Choose Your Plan</h2>
+            <p class="text-gray-400 text-sm mb-6 text-center">Unlock unlimited transcriptions and premium features</p>
+
+            <div class="grid md:grid-cols-3 gap-4">
+                <!-- Free -->
+                <div class="glass rounded-xl p-5 border border-white/10">
+                    <h3 class="text-lg font-semibold text-white">Free</h3>
+                    <p class="text-3xl font-bold text-white mt-2">₹0<span class="text-sm text-gray-500">/mo</span></p>
+                    <ul class="mt-4 space-y-2 text-sm text-gray-400">
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>5 transcriptions/month</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>Basic AI summary</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>Export to TXT/SRT</li>
+                    </ul>
+                    <button class="w-full mt-4 px-4 py-2 glass rounded-lg text-gray-400 cursor-default">Current Plan</button>
+                </div>
+
+                <!-- Pro -->
+                <div class="glass rounded-xl p-5 border-2 border-purple-500 relative">
+                    <div class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-purple-500 rounded-full text-xs font-semibold">POPULAR</div>
+                    <h3 class="text-lg font-semibold text-white">Pro</h3>
+                    <p class="text-3xl font-bold text-white mt-2">₹299<span class="text-sm text-gray-500">/mo</span></p>
+                    <ul class="mt-4 space-y-2 text-sm text-gray-400">
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>100 transcriptions/month</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>Advanced AI features</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>All export formats</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>Priority processing</li>
+                    </ul>
+                    <button onclick="initiatePayment('pro')" class="w-full mt-4 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-500 rounded-lg text-white font-semibold hover:from-purple-500 hover:to-pink-400 transition-all">Upgrade</button>
+                </div>
+
+                <!-- Unlimited -->
+                <div class="glass rounded-xl p-5 border border-white/10">
+                    <h3 class="text-lg font-semibold text-white">Unlimited</h3>
+                    <p class="text-3xl font-bold text-white mt-2">₹799<span class="text-sm text-gray-500">/mo</span></p>
+                    <ul class="mt-4 space-y-2 text-sm text-gray-400">
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>Unlimited transcriptions</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>All Pro features</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>API access</li>
+                        <li><i class="fas fa-check text-green-400 mr-2"></i>Priority support</li>
+                    </ul>
+                    <button onclick="initiatePayment('unlimited')" class="w-full mt-4 px-4 py-2 glass hover:bg-white/10 rounded-lg text-white font-semibold transition-all">Upgrade</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Gradient background -->
     <div class="fixed inset-0 bg-gradient-to-br from-purple-900/20 via-transparent to-blue-900/20 pointer-events-none"></div>
@@ -729,6 +1018,39 @@ HTML_TEMPLATE = '''
                     <div id="progressBar" class="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500" style="width: 10%"></div>
                 </div>
                 <p id="progressText" class="text-center text-xs text-gray-500 mt-2">Starting...</p>
+            </div>
+
+            <!-- Skeleton Preview -->
+            <div class="glass-strong rounded-2xl mt-6 overflow-hidden">
+                <div class="flex flex-col md:flex-row gap-4 p-4">
+                    <div class="md:w-64 flex-shrink-0">
+                        <div class="skeleton skeleton-thumbnail"></div>
+                    </div>
+                    <div class="flex-1 space-y-3">
+                        <div class="skeleton skeleton-title"></div>
+                        <div class="flex gap-2">
+                            <div class="skeleton skeleton-badge"></div>
+                            <div class="skeleton skeleton-badge"></div>
+                        </div>
+                        <div class="flex gap-2 mt-4">
+                            <div class="skeleton skeleton-button"></div>
+                            <div class="skeleton skeleton-button"></div>
+                            <div class="skeleton skeleton-button"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t border-white/5">
+                    <div class="skeleton skeleton-text w-full"></div>
+                    <div class="skeleton skeleton-text w-full"></div>
+                    <div class="skeleton skeleton-text w-3/4"></div>
+                </div>
+                <div class="p-4 border-t border-white/5">
+                    <div class="skeleton skeleton-line w-full"></div>
+                    <div class="skeleton skeleton-line w-full"></div>
+                    <div class="skeleton skeleton-line w-full"></div>
+                    <div class="skeleton skeleton-line w-full"></div>
+                    <div class="skeleton skeleton-line w-2/3"></div>
+                </div>
             </div>
         </div>
 
@@ -989,6 +1311,229 @@ HTML_TEMPLATE = '''
 
     <script>
         let currentData = null;
+        let currentUser = null;
+        let isSignUp = false;
+
+        // ============ Supabase Configuration ============
+        // These will be set from environment - for now use placeholders
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL';  // Replace with actual URL
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';  // Replace with actual key
+
+        let supabase = null;
+        if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && window.supabase) {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            checkAuth();
+        }
+
+        async function checkAuth() {
+            if (!supabase) return;
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                currentUser = user;
+                updateUserUI(user);
+            }
+
+            // Listen for auth changes
+            supabase.auth.onAuthStateChange((event, session) => {
+                if (session?.user) {
+                    currentUser = session.user;
+                    updateUserUI(session.user);
+                } else {
+                    currentUser = null;
+                    document.getElementById('userMenuLoggedOut').classList.remove('hidden');
+                    document.getElementById('userMenuLoggedIn').classList.add('hidden');
+                }
+            });
+        }
+
+        function updateUserUI(user) {
+            document.getElementById('userMenuLoggedOut').classList.add('hidden');
+            document.getElementById('userMenuLoggedIn').classList.remove('hidden');
+            document.getElementById('userName').textContent = user.email?.split('@')[0] || 'User';
+            document.getElementById('userAvatar').textContent = (user.email?.[0] || 'U').toUpperCase();
+            loadUserStats();
+        }
+
+        async function loadUserStats() {
+            if (!currentUser) return;
+            try {
+                const res = await fetch(`/user-stats/${currentUser.id}`);
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('userTier').textContent = data.tier.charAt(0).toUpperCase() + data.tier.slice(1);
+                    document.getElementById('usageCount').textContent = `${data.monthly_used}/${data.monthly_limit}`;
+                }
+            } catch (e) { console.log('Stats not available'); }
+        }
+
+        // ============ Auth Modal Functions ============
+        function showAuthModal() { document.getElementById('authModal').classList.remove('hidden'); }
+        function hideAuthModal() {
+            document.getElementById('authModal').classList.add('hidden');
+            document.getElementById('authError').classList.add('hidden');
+        }
+
+        function toggleAuthMode() {
+            isSignUp = !isSignUp;
+            document.getElementById('authSubmitText').textContent = isSignUp ? 'Sign Up' : 'Sign In';
+            document.getElementById('authToggleText').textContent = isSignUp ? 'Already have an account?' : "Don't have an account?";
+            document.getElementById('authToggleBtn').textContent = isSignUp ? 'Sign In' : 'Sign Up';
+        }
+
+        async function signInWithEmail() {
+            if (!supabase) {
+                showToast('User features not configured yet', 'error');
+                return;
+            }
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+
+            if (!email || !password) {
+                document.getElementById('authError').textContent = 'Please fill in all fields';
+                document.getElementById('authError').classList.remove('hidden');
+                return;
+            }
+
+            try {
+                let result;
+                if (isSignUp) {
+                    result = await supabase.auth.signUp({ email, password });
+                } else {
+                    result = await supabase.auth.signInWithPassword({ email, password });
+                }
+
+                if (result.error) throw result.error;
+
+                hideAuthModal();
+                showToast(isSignUp ? 'Account created! Check your email to verify.' : 'Welcome back!', 'success');
+            } catch (error) {
+                document.getElementById('authError').textContent = error.message;
+                document.getElementById('authError').classList.remove('hidden');
+            }
+        }
+
+        async function signInWithGoogle() {
+            if (!supabase) {
+                showToast('User features not configured yet', 'error');
+                return;
+            }
+            try {
+                const { error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: { redirectTo: window.location.origin }
+                });
+                if (error) throw error;
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function signOut() {
+            if (!supabase) return;
+            await supabase.auth.signOut();
+            currentUser = null;
+            showToast('Signed out successfully', 'info');
+            document.getElementById('userDropdown').classList.add('hidden');
+        }
+
+        function toggleUserDropdown() {
+            document.getElementById('userDropdown').classList.toggle('hidden');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#userMenuLoggedIn')) {
+                document.getElementById('userDropdown')?.classList.add('hidden');
+            }
+        });
+
+        // ============ History Modal Functions ============
+        function showHistoryModal() {
+            document.getElementById('historyModal').classList.remove('hidden');
+            document.getElementById('userDropdown').classList.add('hidden');
+            loadHistory();
+        }
+        function hideHistoryModal() { document.getElementById('historyModal').classList.add('hidden'); }
+
+        async function loadHistory() {
+            if (!currentUser) return;
+            const container = document.getElementById('historyList');
+
+            try {
+                const res = await fetch(`/user-history/${currentUser.id}`);
+                const data = await res.json();
+
+                if (data.transcriptions.length === 0) {
+                    container.innerHTML = '<div class="text-center text-gray-500 py-8"><i class="fas fa-folder-open text-4xl mb-3"></i><p>No transcriptions yet</p></div>';
+                    return;
+                }
+
+                container.innerHTML = data.transcriptions.map(t => `
+                    <div class="glass rounded-xl p-4 flex gap-4 items-start">
+                        <img src="${t.thumbnail || 'https://via.placeholder.com/120x68'}" class="w-24 h-14 object-cover rounded-lg flex-shrink-0">
+                        <div class="flex-1 min-w-0">
+                            <h4 class="text-white font-medium truncate">${t.title}</h4>
+                            <p class="text-xs text-gray-500 mt-1">${new Date(t.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <button onclick="loadFromHistory('${t.id}')" class="px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-xs text-purple-400">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button onclick="deleteFromHistory('${t.id}')" class="px-3 py-1.5 glass hover:bg-red-500/20 rounded-lg text-xs text-red-400">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<div class="text-center text-red-400 py-8">Failed to load history</div>';
+            }
+        }
+
+        async function deleteFromHistory(id) {
+            if (!currentUser || !confirm('Delete this transcription?')) return;
+            try {
+                await fetch(`/delete-transcription/${id}?user_id=${currentUser.id}`, { method: 'DELETE' });
+                showToast('Deleted successfully', 'success');
+                loadHistory();
+            } catch (e) {
+                showToast('Failed to delete', 'error');
+            }
+        }
+
+        // ============ Pricing Modal Functions ============
+        function showPricingModal() {
+            document.getElementById('pricingModal').classList.remove('hidden');
+            document.getElementById('userDropdown').classList.add('hidden');
+        }
+        function hidePricingModal() { document.getElementById('pricingModal').classList.add('hidden'); }
+
+        function initiatePayment(plan) {
+            showToast('Razorpay integration coming soon!', 'info');
+            // TODO: Implement Razorpay payment
+        }
+
+        // ============ Save Transcription ============
+        async function saveTranscription() {
+            if (!currentUser || !currentData) return;
+            try {
+                const res = await fetch('/save-transcription', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: currentUser.id,
+                        video_url: document.getElementById('urlInput').value,
+                        title: currentData.title,
+                        thumbnail: currentData.thumbnail,
+                        duration: currentData.duration,
+                        transcript: currentData.transcript,
+                        summary: currentData.summary,
+                        language: currentData.language
+                    })
+                });
+                if (res.ok) showToast('Saved to history!', 'success');
+            } catch (e) {
+                console.log('Could not save transcription');
+            }
+        }
 
         // ============ Toast Notifications ============
         function showToast(message, type = 'success', duration = 3000) {
