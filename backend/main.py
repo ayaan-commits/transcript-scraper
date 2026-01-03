@@ -55,6 +55,7 @@ else:
 
 class TranscribeRequest(BaseModel):
     url: str
+    summary_style: str = "brief"  # brief, bullets, takeaways, actions
 
 
 class Segment(BaseModel):
@@ -126,22 +127,32 @@ def get_video_metadata(url: str) -> dict:
         return {}
 
 
-def generate_summary(transcript: str) -> str:
-    """Generate a summary using Groq LLM."""
+def generate_summary(transcript: str, style: str = "brief") -> str:
+    """Generate a summary using Groq LLM with different styles."""
+
+    style_prompts = {
+        "brief": "Provide a concise summary in 2-3 sentences capturing the main points.",
+        "bullets": "Provide a summary as 4-6 bullet points. Start each point with •",
+        "takeaways": "Extract the 3-5 key takeaways from this content. Start each with a number (1., 2., etc.)",
+        "actions": "Extract any action items, recommendations, or things the viewer should do. If none exist, summarize the main advice given. Use bullet points starting with •"
+    }
+
+    system_prompt = style_prompts.get(style, style_prompts["brief"])
+
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that summarizes video transcripts. Provide a concise summary in 2-3 sentences capturing the main points."
+                    "content": f"You are a helpful assistant that summarizes video transcripts. {system_prompt}"
                 },
                 {
                     "role": "user",
                     "content": f"Summarize this transcript:\n\n{transcript[:4000]}"
                 }
             ],
-            max_tokens=200,
+            max_tokens=300,
             temperature=0.3,
         )
         return response.choices[0].message.content.strip()
@@ -305,8 +316,8 @@ async def transcribe_video(request: TranscribeRequest):
         # Generate AI summary
         summary = ""
         if transcript:
-            print("Generating AI summary...")
-            summary = generate_summary(transcript)
+            print(f"Generating AI summary (style: {request.summary_style})...")
+            summary = generate_summary(transcript, request.summary_style)
 
         return TranscribeResponse(
             success=True,
@@ -347,146 +358,220 @@ HTML_TEMPLATE = '''
     <title>Video Transcriber</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
+        .glass-strong { background: rgba(255,255,255,0.06); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,0.1); }
+        .glow { box-shadow: 0 0 40px rgba(147, 51, 234, 0.15); }
+        .glow-sm { box-shadow: 0 0 20px rgba(147, 51, 234, 0.1); }
+        .highlight { background: linear-gradient(90deg, rgba(250, 204, 21, 0.3), rgba(250, 204, 21, 0.1)); border-radius: 2px; padding: 0 2px; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .slide-up { animation: slideUp 0.4s ease-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse-border { animation: pulseBorder 2s ease-in-out infinite; }
+        @keyframes pulseBorder { 0%, 100% { border-color: rgba(147, 51, 234, 0.3); } 50% { border-color: rgba(147, 51, 234, 0.6); } }
+        input:focus, select:focus { box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.3); }
+        .btn-hover { transition: all 0.2s ease; }
+        .btn-hover:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(147, 51, 234, 0.3); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: rgba(147, 51, 234, 0.5); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(147, 51, 234, 0.7); }
+        .summary-content { white-space: pre-line; }
+    </style>
 </head>
-<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-    <div class="container mx-auto px-4 py-8 max-w-4xl">
+<body class="min-h-screen bg-[#0a0a0f]">
+    <!-- Gradient background -->
+    <div class="fixed inset-0 bg-gradient-to-br from-purple-900/20 via-transparent to-blue-900/20 pointer-events-none"></div>
+    <div class="fixed top-0 left-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="fixed bottom-0 right-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="relative container mx-auto px-4 py-8 max-w-5xl">
         <!-- Header -->
-        <div class="text-center mb-10">
-            <h1 class="text-4xl md:text-5xl font-bold text-white mb-3">
-                <i class="fas fa-video mr-3 text-purple-400"></i>Video Transcriber
+        <div class="text-center mb-8 slide-up">
+            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass text-purple-300 text-sm mb-4">
+                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                Powered by Groq Whisper
+            </div>
+            <h1 class="text-4xl md:text-5xl font-bold text-white mb-3 tracking-tight">
+                Video <span class="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Transcriber</span>
             </h1>
-            <p class="text-gray-400 text-lg">
-                Transcribe videos from YouTube, Instagram, TikTok & more with AI
+            <p class="text-gray-400 text-lg max-w-xl mx-auto">
+                Transform any video into searchable, editable text with AI-powered transcription
             </p>
         </div>
 
         <!-- Platform badges -->
-        <div class="flex justify-center gap-3 mb-8 flex-wrap">
-            <span class="px-4 py-2 bg-red-500/20 rounded-full text-red-300 text-sm font-medium">
-                <i class="fab fa-youtube mr-2"></i>YouTube
+        <div class="flex justify-center gap-2 mb-8 flex-wrap fade-in">
+            <span class="px-3 py-1.5 glass rounded-full text-gray-300 text-xs font-medium flex items-center gap-2 hover:bg-white/10 transition-all cursor-default">
+                <i class="fab fa-youtube text-red-400"></i>YouTube
             </span>
-            <span class="px-4 py-2 bg-pink-500/20 rounded-full text-pink-300 text-sm font-medium">
-                <i class="fab fa-instagram mr-2"></i>Instagram
+            <span class="px-3 py-1.5 glass rounded-full text-gray-300 text-xs font-medium flex items-center gap-2 hover:bg-white/10 transition-all cursor-default">
+                <i class="fab fa-instagram text-pink-400"></i>Instagram
             </span>
-            <span class="px-4 py-2 bg-cyan-500/20 rounded-full text-cyan-300 text-sm font-medium">
-                <i class="fab fa-tiktok mr-2"></i>TikTok
+            <span class="px-3 py-1.5 glass rounded-full text-gray-300 text-xs font-medium flex items-center gap-2 hover:bg-white/10 transition-all cursor-default">
+                <i class="fab fa-tiktok text-cyan-400"></i>TikTok
             </span>
-            <span class="px-4 py-2 bg-blue-500/20 rounded-full text-blue-300 text-sm font-medium">
-                <i class="fab fa-twitter mr-2"></i>Twitter/X
+            <span class="px-3 py-1.5 glass rounded-full text-gray-300 text-xs font-medium flex items-center gap-2 hover:bg-white/10 transition-all cursor-default">
+                <i class="fab fa-twitter text-blue-400"></i>Twitter/X
             </span>
         </div>
 
         <!-- Input form -->
-        <div class="bg-white/5 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-white/10">
+        <div class="glass-strong rounded-2xl p-5 mb-6 glow fade-in">
             <form id="transcribeForm">
-                <div class="flex flex-col md:flex-row gap-4">
-                    <input type="url" id="urlInput" placeholder="Paste video URL here..."
-                        class="flex-1 px-5 py-4 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                    <button type="submit" id="submitBtn"
-                        class="px-8 py-4 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all flex items-center justify-center gap-2 min-w-[160px]">
-                        <i class="fas fa-wand-magic-sparkles"></i>
-                        <span>Transcribe</span>
-                    </button>
+                <div class="flex flex-col gap-4">
+                    <!-- URL Input Row -->
+                    <div class="flex flex-col md:flex-row gap-3">
+                        <div class="flex-1 relative">
+                            <i class="fas fa-link absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                            <input type="url" id="urlInput" placeholder="Paste video URL here..."
+                                class="w-full pl-11 pr-4 py-3.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all">
+                        </div>
+                        <button type="submit" id="submitBtn"
+                            class="px-6 py-3.5 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 disabled:from-purple-800 disabled:to-purple-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all flex items-center justify-center gap-2 min-w-[150px] btn-hover">
+                            <i class="fas fa-wand-magic-sparkles"></i>
+                            <span>Transcribe</span>
+                        </button>
+                    </div>
+                    <!-- Options Row -->
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <div class="flex-1">
+                            <label class="block text-xs text-gray-500 mb-1.5 ml-1">Summary Style</label>
+                            <select id="summaryStyle" class="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 focus:outline-none focus:border-purple-500/50 transition-all text-sm cursor-pointer">
+                                <option value="brief">Brief Summary</option>
+                                <option value="bullets">Bullet Points</option>
+                                <option value="takeaways">Key Takeaways</option>
+                                <option value="actions">Action Items</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </form>
         </div>
 
         <!-- Loading state -->
-        <div id="loading" class="hidden">
-            <div class="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/10 text-center">
-                <div class="relative w-20 h-20 mx-auto mb-4">
-                    <div class="absolute inset-0 border-4 border-purple-500/30 rounded-full"></div>
-                    <div class="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
+        <div id="loading" class="hidden fade-in">
+            <div class="glass-strong rounded-2xl p-10 text-center glow">
+                <div class="relative w-16 h-16 mx-auto mb-5">
+                    <div class="absolute inset-0 border-3 border-purple-500/20 rounded-full"></div>
+                    <div class="absolute inset-0 border-3 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
+                    <i class="fas fa-microphone-alt absolute inset-0 flex items-center justify-center text-purple-400 text-lg"></i>
                 </div>
-                <h3 class="text-xl font-semibold text-white mb-2" id="loadingText">Processing your video...</h3>
-                <p class="text-gray-400" id="loadingSubtext">Downloading audio and transcribing</p>
+                <h3 class="text-lg font-semibold text-white mb-2" id="loadingText">Processing your video...</h3>
+                <p class="text-gray-500 text-sm" id="loadingSubtext">Downloading audio and transcribing with AI</p>
+                <div class="mt-4 flex justify-center gap-1">
+                    <div class="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0s"></div>
+                    <div class="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                    <div class="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                </div>
             </div>
         </div>
 
         <!-- Error state -->
-        <div id="error" class="hidden">
-            <div class="bg-red-500/10 backdrop-blur-sm rounded-2xl p-6 border border-red-500/30">
+        <div id="error" class="hidden fade-in">
+            <div class="glass rounded-2xl p-5 border-red-500/30 bg-red-500/5">
                 <div class="flex items-start gap-4">
-                    <div class="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <div class="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
                         <i class="fas fa-exclamation-triangle text-red-400"></i>
                     </div>
                     <div>
-                        <h4 class="text-red-400 font-semibold mb-1">Error</h4>
-                        <p id="errorText" class="text-red-300"></p>
+                        <h4 class="text-red-400 font-semibold mb-1">Something went wrong</h4>
+                        <p id="errorText" class="text-red-300/80 text-sm"></p>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Result -->
-        <div id="result" class="hidden">
-            <!-- Compact card with thumbnail + transcript -->
-            <div class="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10">
-                <div class="flex flex-col lg:flex-row">
-                    <!-- Left: Thumbnail -->
-                    <div class="lg:w-80 flex-shrink-0 bg-black/20">
-                        <img id="thumbnail" src="" alt="Video thumbnail" class="w-full h-64 lg:h-full object-cover">
+        <div id="result" class="hidden slide-up">
+            <div class="glass-strong rounded-2xl overflow-hidden glow">
+                <!-- Video Header -->
+                <div class="flex flex-col md:flex-row">
+                    <!-- Thumbnail -->
+                    <div class="md:w-72 flex-shrink-0 relative group">
+                        <img id="thumbnail" src="" alt="Video thumbnail" class="w-full h-48 md:h-full object-cover">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+                        <div class="absolute bottom-3 left-3 right-3">
+                            <span id="durationBadge" class="px-2 py-1 bg-black/60 backdrop-blur-sm text-white rounded text-xs">
+                                <i class="fas fa-clock mr-1"></i><span></span>
+                            </span>
+                        </div>
                     </div>
 
-                    <!-- Right: Content -->
-                    <div class="flex-1 flex flex-col">
-                        <!-- Header -->
-                        <div class="p-5 border-b border-white/10">
-                            <h2 id="videoTitle" class="text-lg font-bold text-white mb-3 line-clamp-2"></h2>
-                            <div class="flex flex-wrap gap-2 mb-3">
-                                <span class="px-2 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-medium">
-                                    <i class="fas fa-check mr-1"></i>Success
-                                </span>
-                                <span id="langBadge" class="px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full text-xs">
-                                    <i class="fas fa-language mr-1"></i><span></span>
-                                </span>
-                                <span id="durationBadge" class="px-2 py-1 bg-purple-500/20 text-purple-400 rounded-full text-xs">
-                                    <i class="fas fa-clock mr-1"></i><span></span>
-                                </span>
-                            </div>
-                            <!-- Download buttons -->
-                            <div class="flex flex-wrap gap-2">
-                                <button onclick="downloadTXT()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all flex items-center gap-1">
-                                    <i class="fas fa-file-alt"></i>TXT
-                                </button>
-                                <button onclick="downloadSRT()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all flex items-center gap-1">
-                                    <i class="fas fa-closed-captioning"></i>SRT
-                                </button>
-                                <button onclick="downloadVTT()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all flex items-center gap-1">
-                                    <i class="fas fa-closed-captioning"></i>VTT
-                                </button>
-                                <button onclick="copyTranscript()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-xs transition-all flex items-center gap-1">
-                                    <i class="fas fa-copy"></i><span id="copyText">Copy</span>
-                                </button>
+                    <!-- Info -->
+                    <div class="flex-1 p-5">
+                        <div class="flex items-start justify-between gap-4 mb-4">
+                            <div>
+                                <h2 id="videoTitle" class="text-xl font-bold text-white mb-2 line-clamp-2"></h2>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-2.5 py-1 bg-green-500/20 text-green-400 rounded-lg text-xs font-medium">
+                                        <i class="fas fa-check-circle mr-1"></i>Transcribed
+                                    </span>
+                                    <span id="langBadge" class="px-2.5 py-1 bg-blue-500/20 text-blue-400 rounded-lg text-xs">
+                                        <i class="fas fa-globe mr-1"></i><span></span>
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- AI Summary (compact) -->
-                        <div id="summarySection" class="px-5 py-3 bg-purple-500/5 border-b border-white/10">
-                            <div class="flex items-start gap-2">
-                                <i class="fas fa-robot text-purple-400 mt-1"></i>
-                                <p id="summary" class="text-gray-300 text-sm leading-relaxed"></p>
-                            </div>
+                        <!-- Export buttons -->
+                        <div class="flex flex-wrap gap-2">
+                            <span class="text-xs text-gray-500 w-full mb-1">Export as:</span>
+                            <button onclick="downloadTXT()" class="px-3 py-2 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2 btn-hover">
+                                <i class="fas fa-file-alt text-gray-400"></i>TXT
+                            </button>
+                            <button onclick="downloadSRT()" class="px-3 py-2 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2 btn-hover">
+                                <i class="fas fa-closed-captioning text-yellow-400"></i>SRT
+                            </button>
+                            <button onclick="downloadVTT()" class="px-3 py-2 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2 btn-hover">
+                                <i class="fas fa-closed-captioning text-blue-400"></i>VTT
+                            </button>
+                            <button onclick="downloadJSON()" class="px-3 py-2 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2 btn-hover">
+                                <i class="fas fa-code text-green-400"></i>JSON
+                            </button>
+                            <button onclick="copyTranscript()" class="px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-xs transition-all flex items-center gap-2 btn-hover">
+                                <i class="fas fa-copy"></i><span id="copyText">Copy</span>
+                            </button>
                         </div>
+                    </div>
+                </div>
 
-                        <!-- Transcript -->
-                        <div class="flex-1 flex flex-col min-h-0">
-                            <div class="px-5 py-3 border-b border-white/10 flex items-center justify-between">
-                                <span class="text-sm font-medium text-gray-400">
-                                    <i class="fas fa-file-lines mr-2"></i>Transcript
-                                </span>
-                                <div class="flex gap-1">
-                                    <button onclick="showPlainTranscript()" id="plainBtn" class="px-2 py-1 bg-purple-600 rounded text-white text-xs">Plain</button>
-                                    <button onclick="showTimestampTranscript()" id="timestampBtn" class="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-white text-xs">Timestamps</button>
-                                </div>
-                            </div>
-                            <div class="flex-1 p-4 overflow-hidden">
-                                <div id="transcriptPlain" class="h-64 lg:h-80 overflow-y-auto bg-black/20 rounded-lg p-4">
-                                    <p id="transcript" class="text-gray-200 text-sm whitespace-pre-wrap leading-relaxed"></p>
-                                </div>
-                                <div id="transcriptTimestamps" class="hidden h-64 lg:h-80 overflow-y-auto bg-black/20 rounded-lg p-4 space-y-2">
-                                </div>
-                            </div>
+                <!-- AI Summary -->
+                <div id="summarySection" class="px-5 py-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-t border-b border-white/5">
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-robot text-purple-400 text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h4 class="text-xs font-semibold text-purple-300 uppercase tracking-wider mb-1">AI Summary</h4>
+                            <p id="summary" class="text-gray-300 text-sm leading-relaxed summary-content"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transcript Section -->
+                <div class="p-5">
+                    <!-- Search & View Toggle -->
+                    <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                        <div class="flex-1 relative">
+                            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+                            <input type="text" id="searchInput" placeholder="Search transcript..."
+                                class="w-full pl-9 pr-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all text-sm">
+                            <span id="searchCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 hidden"></span>
+                        </div>
+                        <div class="flex gap-1 bg-white/5 p-1 rounded-lg">
+                            <button onclick="showPlainTranscript()" id="plainBtn" class="px-4 py-2 bg-purple-600 rounded-md text-white text-xs font-medium transition-all">Plain</button>
+                            <button onclick="showTimestampTranscript()" id="timestampBtn" class="px-4 py-2 hover:bg-white/10 rounded-md text-gray-400 text-xs font-medium transition-all">Timestamps</button>
+                        </div>
+                    </div>
+
+                    <!-- Transcript Content -->
+                    <div class="bg-black/30 rounded-xl border border-white/5">
+                        <div id="transcriptPlain" class="h-72 overflow-y-auto p-4">
+                            <p id="transcript" class="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed"></p>
+                        </div>
+                        <div id="transcriptTimestamps" class="hidden h-72 overflow-y-auto p-4 space-y-1">
                         </div>
                     </div>
                 </div>
@@ -494,8 +579,8 @@ HTML_TEMPLATE = '''
         </div>
 
         <!-- Footer -->
-        <footer class="text-center mt-12 text-gray-500 text-sm">
-            <p>Powered by <span class="text-purple-400">Groq Whisper API</span> & <span class="text-purple-400">yt-dlp</span></p>
+        <footer class="text-center mt-10 text-gray-600 text-xs">
+            <p>Built with <i class="fas fa-heart text-purple-500"></i> using <span class="text-gray-500">Groq Whisper</span> & <span class="text-gray-500">yt-dlp</span></p>
         </footer>
     </div>
 
@@ -505,10 +590,13 @@ HTML_TEMPLATE = '''
         const form = document.getElementById('transcribeForm');
         const urlInput = document.getElementById('urlInput');
         const submitBtn = document.getElementById('submitBtn');
+        const summaryStyle = document.getElementById('summaryStyle');
         const loading = document.getElementById('loading');
         const error = document.getElementById('error');
         const errorText = document.getElementById('errorText');
         const result = document.getElementById('result');
+        const searchInput = document.getElementById('searchInput');
+        const searchCount = document.getElementById('searchCount');
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -519,13 +607,16 @@ HTML_TEMPLATE = '''
             error.classList.add('hidden');
             result.classList.add('hidden');
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Processing...</span>';
+            submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><span>Processing...</span>';
 
             try {
                 const response = await fetch('/transcribe', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({url})
+                    body: JSON.stringify({
+                        url: url,
+                        summary_style: summaryStyle.value
+                    })
                 });
                 const data = await response.json();
 
@@ -546,14 +637,88 @@ HTML_TEMPLATE = '''
             }
         });
 
-        function displayResult(data) {
-            // Video info
-            document.getElementById('thumbnail').src = data.thumbnail || 'https://via.placeholder.com/480x270?text=No+Thumbnail';
-            document.getElementById('videoTitle').textContent = data.title || 'Video';
-            document.getElementById('langBadge').querySelector('span').textContent = data.language || 'Unknown';
-            document.getElementById('durationBadge').querySelector('span').textContent = data.duration ? data.duration + 's' : '';
+        // Search functionality
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            highlightSearch(query);
+        });
 
-            // Summary
+        function highlightSearch(query) {
+            const transcriptEl = document.getElementById('transcript');
+            const timestampContainer = document.getElementById('transcriptTimestamps');
+
+            if (!currentData) return;
+
+            if (!query) {
+                transcriptEl.innerHTML = escapeHtml(currentData.transcript);
+                searchCount.classList.add('hidden');
+                // Reset timestamp view
+                if (currentData.segments) {
+                    renderTimestamps(currentData.segments);
+                }
+                return;
+            }
+
+            // Highlight in plain transcript
+            const text = currentData.transcript;
+            const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+            const matches = text.match(regex);
+            const count = matches ? matches.length : 0;
+
+            searchCount.textContent = `${count} found`;
+            searchCount.classList.remove('hidden');
+
+            transcriptEl.innerHTML = escapeHtml(text).replace(
+                new RegExp(`(${escapeRegex(escapeHtml(query))})`, 'gi'),
+                '<mark class="highlight">$1</mark>'
+            );
+
+            // Highlight in timestamps
+            if (currentData.segments) {
+                renderTimestamps(currentData.segments, query);
+            }
+        }
+
+        function renderTimestamps(segments, query = '') {
+            const container = document.getElementById('transcriptTimestamps');
+            container.innerHTML = '';
+
+            segments.forEach(seg => {
+                const div = document.createElement('div');
+                div.className = 'flex gap-3 p-2.5 hover:bg-white/5 rounded-lg transition-all cursor-default';
+
+                let textHtml = escapeHtml(seg.text);
+                if (query) {
+                    textHtml = textHtml.replace(
+                        new RegExp(`(${escapeRegex(escapeHtml(query))})`, 'gi'),
+                        '<mark class="highlight">$1</mark>'
+                    );
+                }
+
+                div.innerHTML = `
+                    <span class="text-purple-400 font-mono text-xs bg-purple-500/10 px-2 py-1 rounded whitespace-nowrap h-fit">${formatTime(seg.start)}</span>
+                    <span class="text-gray-300 text-sm">${textHtml}</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+        }
+
+        function displayResult(data) {
+            document.getElementById('thumbnail').src = data.thumbnail || 'https://via.placeholder.com/480x270/1a1a2e/6366f1?text=No+Thumbnail';
+            document.getElementById('videoTitle').textContent = data.title || 'Video';
+            document.getElementById('langBadge').querySelector('span').textContent = data.language ? data.language.toUpperCase() : 'N/A';
+            document.getElementById('durationBadge').querySelector('span').textContent = data.duration ? formatDuration(data.duration) : '';
+
             const summarySection = document.getElementById('summarySection');
             if (data.summary) {
                 document.getElementById('summary').textContent = data.summary;
@@ -562,22 +727,12 @@ HTML_TEMPLATE = '''
                 summarySection.classList.add('hidden');
             }
 
-            // Transcript
             document.getElementById('transcript').textContent = data.transcript;
+            searchInput.value = '';
+            searchCount.classList.add('hidden');
 
-            // Timestamps
-            const timestampContainer = document.getElementById('transcriptTimestamps');
-            timestampContainer.innerHTML = '';
             if (data.segments && data.segments.length > 0) {
-                data.segments.forEach(seg => {
-                    const div = document.createElement('div');
-                    div.className = 'flex gap-4 p-3 hover:bg-white/5 rounded-lg transition-all';
-                    div.innerHTML = `
-                        <span class="text-purple-400 font-mono text-sm whitespace-nowrap">${formatTime(seg.start)}</span>
-                        <span class="text-gray-200">${seg.text}</span>
-                    `;
-                    timestampContainer.appendChild(div);
-                });
+                renderTimestamps(data.segments);
             }
 
             result.classList.remove('hidden');
@@ -589,29 +744,55 @@ HTML_TEMPLATE = '''
             return `${mins}:${secs.toString().padStart(2, '0')}`;
         }
 
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            if (mins >= 60) {
+                const hrs = Math.floor(mins / 60);
+                const remainMins = mins % 60;
+                return `${hrs}:${remainMins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
         function showPlainTranscript() {
             document.getElementById('transcriptPlain').classList.remove('hidden');
             document.getElementById('transcriptTimestamps').classList.add('hidden');
-            document.getElementById('plainBtn').className = 'px-3 py-1 bg-purple-600 rounded-lg text-white text-sm';
-            document.getElementById('timestampBtn').className = 'px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm';
+            document.getElementById('plainBtn').className = 'px-4 py-2 bg-purple-600 rounded-md text-white text-xs font-medium transition-all';
+            document.getElementById('timestampBtn').className = 'px-4 py-2 hover:bg-white/10 rounded-md text-gray-400 text-xs font-medium transition-all';
         }
 
         function showTimestampTranscript() {
             document.getElementById('transcriptPlain').classList.add('hidden');
             document.getElementById('transcriptTimestamps').classList.remove('hidden');
-            document.getElementById('plainBtn').className = 'px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm';
-            document.getElementById('timestampBtn').className = 'px-3 py-1 bg-purple-600 rounded-lg text-white text-sm';
+            document.getElementById('plainBtn').className = 'px-4 py-2 hover:bg-white/10 rounded-md text-gray-400 text-xs font-medium transition-all';
+            document.getElementById('timestampBtn').className = 'px-4 py-2 bg-purple-600 rounded-md text-white text-xs font-medium transition-all';
         }
 
         function copyTranscript() {
             navigator.clipboard.writeText(currentData.transcript);
-            document.getElementById('copyText').textContent = 'Copied!';
-            setTimeout(() => document.getElementById('copyText').textContent = 'Copy', 2000);
+            const btn = document.getElementById('copyText');
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = 'Copy', 2000);
         }
 
         function downloadTXT() {
             const blob = new Blob([currentData.transcript], {type: 'text/plain'});
-            downloadBlob(blob, 'transcript.txt');
+            downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.txt`);
+        }
+
+        function downloadJSON() {
+            const exportData = {
+                title: currentData.title,
+                duration: currentData.duration,
+                language: currentData.language,
+                transcript: currentData.transcript,
+                summary: currentData.summary,
+                segments: currentData.segments,
+                exported_at: new Date().toISOString()
+            };
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+            downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.json`);
         }
 
         function downloadSRT() {
@@ -626,7 +807,7 @@ HTML_TEMPLATE = '''
                 srt += `${seg.text.trim()}\\n\\n`;
             });
             const blob = new Blob([srt], {type: 'text/plain'});
-            downloadBlob(blob, 'transcript.srt');
+            downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.srt`);
         }
 
         function downloadVTT() {
@@ -641,7 +822,11 @@ HTML_TEMPLATE = '''
                 vtt += `${seg.text.trim()}\\n\\n`;
             });
             const blob = new Blob([vtt], {type: 'text/vtt'});
-            downloadBlob(blob, 'transcript.vtt');
+            downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.vtt`);
+        }
+
+        function sanitizeFilename(name) {
+            return (name || 'video').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
         }
 
         function formatSRTTime(seconds) {
