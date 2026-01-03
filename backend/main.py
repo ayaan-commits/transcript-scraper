@@ -94,6 +94,18 @@ class HealthResponse(BaseModel):
     message: str
 
 
+class ScriptRequest(BaseModel):
+    transcript: str
+    prompt: str
+    template: str = "custom"  # custom, twitter, blog, youtube, linkedin, newsletter
+
+
+class ScriptResponse(BaseModel):
+    success: bool
+    script: str | None = None
+    error: str | None = None
+
+
 # ============ Helper Functions ============
 
 def get_ydl_opts():
@@ -159,6 +171,57 @@ def generate_summary(transcript: str, style: str = "brief") -> str:
     except Exception as e:
         print(f"Failed to generate summary: {e}")
         return ""
+
+
+def generate_script(transcript: str, prompt: str, template: str = "custom") -> str:
+    """Generate a script/content from transcript using Groq LLM."""
+
+    template_prompts = {
+        "twitter": "Create an engaging Twitter/X thread (5-10 tweets) from this content. Start with a hook, include key insights, and end with a call-to-action. Use emojis sparingly. Format each tweet on a new line starting with the tweet number (1/, 2/, etc.).",
+        "blog": "Write a well-structured blog post from this content. Include an engaging title, introduction, main sections with headers (use ##), key points, and a conclusion. Make it informative and engaging.",
+        "youtube": "Write a YouTube video script based on this content. Include: [HOOK] - attention-grabbing opener, [INTRO] - brief intro, [MAIN CONTENT] - key sections with talking points, [CTA] - call to action, [OUTRO] - closing. Format with clear section headers.",
+        "linkedin": "Create a professional LinkedIn post from this content. Start with a hook, share valuable insights, use line breaks for readability, and end with a question or call-to-action to drive engagement. Keep it professional but personable.",
+        "newsletter": "Write an email newsletter from this content. Include a catchy subject line, greeting, main content with key takeaways, and a sign-off. Make it conversational and valuable to readers.",
+        "custom": "Follow the user's instructions to create content based on the transcript."
+    }
+
+    system_base = template_prompts.get(template, template_prompts["custom"])
+
+    system_message = f"""You are an expert content writer and scriptwriter. Your task is to transform video transcript content into polished, engaging written content.
+
+{system_base}
+
+Guidelines:
+- Maintain the key information and insights from the original content
+- Adapt the tone and style to match the target format
+- Make the content engaging and valuable for the target audience
+- Be creative while staying true to the source material
+- Format the output cleanly and professionally"""
+
+    user_message = f"""Here is the video transcript:
+
+---
+{transcript[:6000]}
+---
+
+User's request: {prompt}
+
+Please create the content based on the transcript and the user's request."""
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=2000,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Failed to generate script: {e}")
+        raise e
 
 
 def format_timestamp(seconds: float) -> str:
@@ -345,6 +408,35 @@ async def transcribe_video(request: TranscribeRequest):
                 shutil.rmtree(temp_dir)
             except Exception as e:
                 print(f"Failed to cleanup temp dir: {e}")
+
+
+@app.post("/generate-script", response_model=ScriptResponse)
+async def generate_script_endpoint(request: ScriptRequest):
+    """
+    Generate a script or content from transcript.
+    Templates: custom, twitter, blog, youtube, linkedin, newsletter
+    """
+    try:
+        if not request.transcript:
+            raise HTTPException(status_code=400, detail="Transcript is required")
+        if not request.prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
+
+        print(f"Generating script with template: {request.template}")
+        script = generate_script(request.transcript, request.prompt, request.template)
+
+        return ScriptResponse(
+            success=True,
+            script=script
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error generating script: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Script generation failed: {str(e)}"
+        )
 
 
 # ============ HTML Template ============
@@ -572,6 +664,77 @@ HTML_TEMPLATE = '''
                             <p id="transcript" class="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed"></p>
                         </div>
                         <div id="transcriptTimestamps" class="hidden h-72 overflow-y-auto p-4 space-y-1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Write Script Section -->
+                <div class="p-5 border-t border-white/5">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-8 h-8 bg-gradient-to-br from-pink-500/20 to-orange-500/20 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-pen-fancy text-pink-400 text-sm"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-semibold">Write Script</h3>
+                            <p class="text-gray-500 text-xs">Transform this transcript into any content format</p>
+                        </div>
+                    </div>
+
+                    <!-- Template Presets -->
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <button onclick="setScriptTemplate('twitter', 'Create a viral Twitter thread from this content')" class="script-template-btn px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2">
+                            <i class="fab fa-twitter text-blue-400"></i>Twitter Thread
+                        </button>
+                        <button onclick="setScriptTemplate('blog', 'Write a detailed blog post from this content')" class="script-template-btn px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2">
+                            <i class="fas fa-blog text-green-400"></i>Blog Post
+                        </button>
+                        <button onclick="setScriptTemplate('youtube', 'Create a YouTube video script from this content')" class="script-template-btn px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2">
+                            <i class="fab fa-youtube text-red-400"></i>YouTube Script
+                        </button>
+                        <button onclick="setScriptTemplate('linkedin', 'Write a professional LinkedIn post from this content')" class="script-template-btn px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2">
+                            <i class="fab fa-linkedin text-blue-500"></i>LinkedIn Post
+                        </button>
+                        <button onclick="setScriptTemplate('newsletter', 'Create an email newsletter from this content')" class="script-template-btn px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-gray-300 text-xs transition-all flex items-center gap-2">
+                            <i class="fas fa-envelope text-yellow-400"></i>Newsletter
+                        </button>
+                    </div>
+
+                    <!-- Custom Prompt -->
+                    <div class="space-y-3">
+                        <div class="relative">
+                            <textarea id="scriptPrompt" rows="3" placeholder="Describe what you want to create... (e.g., 'Write a persuasive sales pitch', 'Create study notes', 'Make a podcast outline')"
+                                class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all text-sm resize-none"></textarea>
+                        </div>
+                        <input type="hidden" id="scriptTemplate" value="custom">
+                        <button onclick="generateScript()" id="generateScriptBtn"
+                            class="w-full px-6 py-3 bg-gradient-to-r from-pink-600 to-orange-500 hover:from-pink-500 hover:to-orange-400 disabled:from-gray-700 disabled:to-gray-600 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all flex items-center justify-center gap-2 btn-hover">
+                            <i class="fas fa-wand-magic-sparkles"></i>
+                            <span>Generate Script</span>
+                        </button>
+                    </div>
+
+                    <!-- Generated Script Output -->
+                    <div id="scriptOutput" class="hidden mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs text-gray-500">Generated Content</span>
+                            <button onclick="copyScript()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-xs transition-all flex items-center gap-2">
+                                <i class="fas fa-copy"></i><span id="copyScriptText">Copy</span>
+                            </button>
+                        </div>
+                        <div class="bg-black/30 rounded-xl border border-white/5 p-4 max-h-96 overflow-y-auto">
+                            <div id="scriptContent" class="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed"></div>
+                        </div>
+                    </div>
+
+                    <!-- Script Loading State -->
+                    <div id="scriptLoading" class="hidden mt-4">
+                        <div class="glass rounded-xl p-6 text-center">
+                            <div class="flex justify-center gap-1 mb-3">
+                                <div class="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style="animation-delay: 0s"></div>
+                                <div class="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                                <div class="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                            </div>
+                            <p class="text-gray-400 text-sm">Generating your content...</p>
                         </div>
                     </div>
                 </div>
@@ -852,6 +1015,79 @@ HTML_TEMPLATE = '''
             a.download = filename;
             a.click();
             URL.revokeObjectURL(url);
+        }
+
+        // Script Generation Functions
+        let generatedScript = '';
+
+        function setScriptTemplate(template, defaultPrompt) {
+            document.getElementById('scriptTemplate').value = template;
+            document.getElementById('scriptPrompt').value = defaultPrompt;
+
+            // Highlight selected template button
+            document.querySelectorAll('.script-template-btn').forEach(btn => {
+                btn.classList.remove('ring-2', 'ring-purple-500', 'bg-white/10');
+            });
+            event.target.closest('button').classList.add('ring-2', 'ring-purple-500', 'bg-white/10');
+        }
+
+        async function generateScript() {
+            const prompt = document.getElementById('scriptPrompt').value.trim();
+            const template = document.getElementById('scriptTemplate').value;
+
+            if (!prompt) {
+                alert('Please enter a prompt or select a template');
+                return;
+            }
+
+            if (!currentData || !currentData.transcript) {
+                alert('No transcript available. Please transcribe a video first.');
+                return;
+            }
+
+            const btn = document.getElementById('generateScriptBtn');
+            const loading = document.getElementById('scriptLoading');
+            const output = document.getElementById('scriptOutput');
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><span>Generating...</span>';
+            loading.classList.remove('hidden');
+            output.classList.add('hidden');
+
+            try {
+                const response = await fetch('/generate-script', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        transcript: currentData.transcript,
+                        prompt: prompt,
+                        template: template
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    generatedScript = data.script;
+                    document.getElementById('scriptContent').textContent = data.script;
+                    output.classList.remove('hidden');
+                } else {
+                    alert(data.detail || data.error || 'Failed to generate script');
+                }
+            } catch (err) {
+                alert('Error: ' + (err.message || 'Failed to generate script'));
+            } finally {
+                loading.classList.add('hidden');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i><span>Generate Script</span>';
+            }
+        }
+
+        function copyScript() {
+            navigator.clipboard.writeText(generatedScript);
+            const btn = document.getElementById('copyScriptText');
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = 'Copy', 2000);
         }
     </script>
 </body>
