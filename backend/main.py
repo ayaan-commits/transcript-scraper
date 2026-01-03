@@ -451,8 +451,12 @@ HTML_TEMPLATE = '''
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
+        :root { --bg-primary: #0a0a0f; --bg-secondary: #111118; --text-primary: #fff; --text-secondary: #9ca3af; --accent: #a855f7; }
+        .light-mode { --bg-primary: #f8fafc; --bg-secondary: #fff; --text-primary: #1e293b; --text-secondary: #64748b; --accent: #9333ea; }
         .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
+        .light-mode .glass { background: rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.08); }
         .glass-strong { background: rgba(255,255,255,0.06); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,0.1); }
+        .light-mode .glass-strong { background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.1); }
         .glow { box-shadow: 0 0 40px rgba(147, 51, 234, 0.15); }
         .glow-sm { box-shadow: 0 0 20px rgba(147, 51, 234, 0.1); }
         .highlight { background: linear-gradient(90deg, rgba(250, 204, 21, 0.3), rgba(250, 204, 21, 0.1)); border-radius: 2px; padding: 0 2px; }
@@ -470,9 +474,48 @@ HTML_TEMPLATE = '''
         ::-webkit-scrollbar-thumb { background: rgba(147, 51, 234, 0.5); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(147, 51, 234, 0.7); }
         .summary-content { white-space: pre-line; }
+        /* Toast Notifications */
+        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .toast { padding: 12px 20px; border-radius: 12px; display: flex; align-items: center; gap: 10px; animation: toastIn 0.3s ease-out; min-width: 250px; }
+        .toast.success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+        .toast.error { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+        .toast.info { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100px); } }
+        .toast.hiding { animation: toastOut 0.3s ease-out forwards; }
+        /* Progress Steps */
+        .progress-step { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; transition: all 0.3s; }
+        .progress-step.active { background: rgba(147, 51, 234, 0.2); }
+        .progress-step.completed { color: #10b981; }
+        .progress-step.pending { color: #6b7280; }
+        .step-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+        .step-icon.active { background: #a855f7; color: white; animation: pulse 1.5s infinite; }
+        .step-icon.completed { background: #10b981; color: white; }
+        .step-icon.pending { background: #374151; color: #9ca3af; }
+        @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); } 50% { box-shadow: 0 0 0 8px rgba(168, 85, 247, 0); } }
+        /* Theme Toggle */
+        .theme-toggle { position: fixed; top: 20px; right: 20px; z-index: 100; }
+        .theme-btn { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s; }
+        /* Light mode overrides */
+        .light-mode body, .light-mode .bg-\\[\\#0a0a0f\\] { background: var(--bg-primary) !important; }
+        .light-mode .text-white { color: var(--text-primary) !important; }
+        .light-mode .text-gray-300, .light-mode .text-gray-400, .light-mode .text-gray-500 { color: var(--text-secondary) !important; }
+        .light-mode .bg-black\\/30 { background: rgba(0,0,0,0.05) !important; }
+        .light-mode .bg-white\\/5, .light-mode .bg-white\\/10 { background: rgba(0,0,0,0.05) !important; }
+        .light-mode .border-white\\/5, .light-mode .border-white\\/10 { border-color: rgba(0,0,0,0.1) !important; }
     </style>
 </head>
 <body class="min-h-screen bg-[#0a0a0f]">
+    <!-- Theme Toggle -->
+    <div class="theme-toggle">
+        <button onclick="toggleTheme()" class="theme-btn glass hover:bg-white/10" title="Toggle theme">
+            <i id="themeIcon" class="fas fa-moon text-purple-400 text-lg"></i>
+        </button>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
     <!-- Gradient background -->
     <div class="fixed inset-0 bg-gradient-to-br from-purple-900/20 via-transparent to-blue-900/20 pointer-events-none"></div>
     <div class="fixed top-0 left-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -542,21 +585,52 @@ HTML_TEMPLATE = '''
             </form>
         </div>
 
-        <!-- Loading state -->
+        <!-- Loading state with Progress Steps -->
         <div id="loading" class="hidden fade-in">
-            <div class="glass-strong rounded-2xl p-10 text-center glow">
-                <div class="relative w-16 h-16 mx-auto mb-5">
-                    <div class="absolute inset-0 border-3 border-purple-500/20 rounded-full"></div>
-                    <div class="absolute inset-0 border-3 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
-                    <i class="fas fa-microphone-alt absolute inset-0 flex items-center justify-center text-purple-400 text-lg"></i>
+            <div class="glass-strong rounded-2xl p-8 glow">
+                <h3 class="text-lg font-semibold text-white mb-6 text-center">Processing your video...</h3>
+
+                <!-- Progress Steps -->
+                <div class="space-y-3 max-w-md mx-auto">
+                    <div id="step1" class="progress-step active">
+                        <div class="step-icon active"><i class="fas fa-download"></i></div>
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-white">Fetching Video</p>
+                            <p class="text-xs text-gray-500">Downloading audio from source</p>
+                        </div>
+                        <i class="fas fa-circle-notch fa-spin text-purple-400 step-spinner"></i>
+                    </div>
+
+                    <div id="step2" class="progress-step pending">
+                        <div class="step-icon pending"><i class="fas fa-waveform-lines"></i></div>
+                        <div class="flex-1">
+                            <p class="text-sm font-medium">Processing Audio</p>
+                            <p class="text-xs text-gray-500">Preparing for transcription</p>
+                        </div>
+                    </div>
+
+                    <div id="step3" class="progress-step pending">
+                        <div class="step-icon pending"><i class="fas fa-microphone-alt"></i></div>
+                        <div class="flex-1">
+                            <p class="text-sm font-medium">Transcribing</p>
+                            <p class="text-xs text-gray-500">Converting speech to text with Whisper AI</p>
+                        </div>
+                    </div>
+
+                    <div id="step4" class="progress-step pending">
+                        <div class="step-icon pending"><i class="fas fa-robot"></i></div>
+                        <div class="flex-1">
+                            <p class="text-sm font-medium">Generating Summary</p>
+                            <p class="text-xs text-gray-500">Creating AI-powered summary</p>
+                        </div>
+                    </div>
                 </div>
-                <h3 class="text-lg font-semibold text-white mb-2" id="loadingText">Processing your video...</h3>
-                <p class="text-gray-500 text-sm" id="loadingSubtext">Downloading audio and transcribing with AI</p>
-                <div class="mt-4 flex justify-center gap-1">
-                    <div class="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0s"></div>
-                    <div class="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
-                    <div class="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+
+                <!-- Progress bar -->
+                <div class="mt-6 bg-white/5 rounded-full h-2 overflow-hidden">
+                    <div id="progressBar" class="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500" style="width: 10%"></div>
                 </div>
+                <p id="progressText" class="text-center text-xs text-gray-500 mt-2">Starting...</p>
             </div>
         </div>
 
@@ -602,6 +676,18 @@ HTML_TEMPLATE = '''
                                     </span>
                                     <span id="langBadge" class="px-2.5 py-1 bg-blue-500/20 text-blue-400 rounded-lg text-xs">
                                         <i class="fas fa-globe mr-1"></i><span></span>
+                                    </span>
+                                </div>
+                                <!-- Stats -->
+                                <div class="flex flex-wrap gap-3 mt-3 text-xs text-gray-500">
+                                    <span id="wordCount" class="flex items-center gap-1">
+                                        <i class="fas fa-font"></i><span>0</span> words
+                                    </span>
+                                    <span id="charCount" class="flex items-center gap-1">
+                                        <i class="fas fa-text-width"></i><span>0</span> chars
+                                    </span>
+                                    <span id="readTime" class="flex items-center gap-1">
+                                        <i class="fas fa-clock"></i><span>0</span> min read
                                     </span>
                                 </div>
                             </div>
@@ -750,6 +836,82 @@ HTML_TEMPLATE = '''
     <script>
         let currentData = null;
 
+        // ============ Toast Notifications ============
+        function showToast(message, type = 'success', duration = 3000) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle';
+            toast.innerHTML = `<i class="fas ${icon}"></i><span>${message}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('hiding');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // ============ Theme Toggle ============
+        function toggleTheme() {
+            const body = document.body;
+            const icon = document.getElementById('themeIcon');
+            body.classList.toggle('light-mode');
+            const isLight = body.classList.contains('light-mode');
+            icon.className = isLight ? 'fas fa-sun text-yellow-400 text-lg' : 'fas fa-moon text-purple-400 text-lg';
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            showToast(isLight ? 'Light mode enabled' : 'Dark mode enabled', 'info', 2000);
+        }
+
+        // Load saved theme
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light-mode');
+            document.getElementById('themeIcon').className = 'fas fa-sun text-yellow-400 text-lg';
+        }
+
+        // ============ Progress Steps ============
+        function updateProgress(step, percent, text) {
+            // Update progress bar
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('progressText').textContent = text;
+
+            // Update step indicators
+            for (let i = 1; i <= 4; i++) {
+                const stepEl = document.getElementById('step' + i);
+                const iconEl = stepEl.querySelector('.step-icon');
+                const spinner = stepEl.querySelector('.step-spinner');
+
+                if (i < step) {
+                    stepEl.className = 'progress-step completed';
+                    iconEl.className = 'step-icon completed';
+                    iconEl.innerHTML = '<i class="fas fa-check"></i>';
+                    if (spinner) spinner.remove();
+                } else if (i === step) {
+                    stepEl.className = 'progress-step active';
+                    iconEl.className = 'step-icon active';
+                    if (!spinner) {
+                        const newSpinner = document.createElement('i');
+                        newSpinner.className = 'fas fa-circle-notch fa-spin text-purple-400 step-spinner';
+                        stepEl.appendChild(newSpinner);
+                    }
+                } else {
+                    stepEl.className = 'progress-step pending';
+                    iconEl.className = 'step-icon pending';
+                }
+            }
+        }
+
+        function resetProgress() {
+            document.getElementById('progressBar').style.width = '10%';
+            document.getElementById('progressText').textContent = 'Starting...';
+            for (let i = 1; i <= 4; i++) {
+                const stepEl = document.getElementById('step' + i);
+                const iconEl = stepEl.querySelector('.step-icon');
+                stepEl.className = i === 1 ? 'progress-step active' : 'progress-step pending';
+                iconEl.className = i === 1 ? 'step-icon active' : 'step-icon pending';
+            }
+        }
+
+        // ============ Main Elements ============
         const form = document.getElementById('transcribeForm');
         const urlInput = document.getElementById('urlInput');
         const submitBtn = document.getElementById('submitBtn');
@@ -771,6 +933,13 @@ HTML_TEMPLATE = '''
             result.classList.add('hidden');
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><span>Processing...</span>';
+            resetProgress();
+
+            // Simulate progress steps (real progress would require SSE/WebSocket)
+            setTimeout(() => updateProgress(1, 25, 'Downloading video...'), 500);
+            setTimeout(() => updateProgress(2, 50, 'Processing audio...'), 3000);
+            setTimeout(() => updateProgress(3, 75, 'Transcribing with AI...'), 6000);
+            setTimeout(() => updateProgress(4, 90, 'Generating summary...'), 15000);
 
             try {
                 const response = await fetch('/transcribe', {
@@ -786,13 +955,16 @@ HTML_TEMPLATE = '''
                 if (data.success) {
                     currentData = data;
                     displayResult(data);
+                    showToast('Transcription completed successfully!', 'success');
                 } else {
                     errorText.textContent = data.detail || data.error || 'Transcription failed';
                     error.classList.remove('hidden');
+                    showToast('Transcription failed. Please try again.', 'error');
                 }
             } catch (err) {
                 errorText.textContent = err.message || 'An error occurred';
                 error.classList.remove('hidden');
+                showToast('An error occurred. Please try again.', 'error');
             } finally {
                 loading.classList.add('hidden');
                 submitBtn.disabled = false;
@@ -894,6 +1066,16 @@ HTML_TEMPLATE = '''
             searchInput.value = '';
             searchCount.classList.add('hidden');
 
+            // Calculate word count, character count, and read time
+            const text = data.transcript || '';
+            const wordCount = text.trim() ? text.trim().split(/\\s+/).length : 0;
+            const charCount = text.length;
+            const readTime = Math.max(1, Math.ceil(wordCount / 200)); // Average reading speed: 200 wpm
+
+            document.getElementById('wordCount').querySelector('span').textContent = wordCount.toLocaleString();
+            document.getElementById('charCount').querySelector('span').textContent = charCount.toLocaleString();
+            document.getElementById('readTime').querySelector('span').textContent = readTime;
+
             if (data.segments && data.segments.length > 0) {
                 renderTimestamps(data.segments);
             }
@@ -934,14 +1116,13 @@ HTML_TEMPLATE = '''
 
         function copyTranscript() {
             navigator.clipboard.writeText(currentData.transcript);
-            const btn = document.getElementById('copyText');
-            btn.textContent = 'Copied!';
-            setTimeout(() => btn.textContent = 'Copy', 2000);
+            showToast('Transcript copied to clipboard!', 'success');
         }
 
         function downloadTXT() {
             const blob = new Blob([currentData.transcript], {type: 'text/plain'});
             downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.txt`);
+            showToast('TXT file downloaded!', 'success');
         }
 
         function downloadJSON() {
@@ -956,11 +1137,12 @@ HTML_TEMPLATE = '''
             };
             const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
             downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.json`);
+            showToast('JSON file downloaded!', 'success');
         }
 
         function downloadSRT() {
             if (!currentData.segments || currentData.segments.length === 0) {
-                alert('No timestamp data available');
+                showToast('No timestamp data available', 'error');
                 return;
             }
             let srt = '';
@@ -971,11 +1153,12 @@ HTML_TEMPLATE = '''
             });
             const blob = new Blob([srt], {type: 'text/plain'});
             downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.srt`);
+            showToast('SRT file downloaded!', 'success');
         }
 
         function downloadVTT() {
             if (!currentData.segments || currentData.segments.length === 0) {
-                alert('No timestamp data available');
+                showToast('No timestamp data available', 'error');
                 return;
             }
             let vtt = 'WEBVTT\\n\\n';
@@ -986,6 +1169,7 @@ HTML_TEMPLATE = '''
             });
             const blob = new Blob([vtt], {type: 'text/vtt'});
             downloadBlob(blob, `${sanitizeFilename(currentData.title)}_transcript.vtt`);
+            showToast('VTT file downloaded!', 'success');
         }
 
         function sanitizeFilename(name) {
@@ -1071,11 +1255,12 @@ HTML_TEMPLATE = '''
                     generatedScript = data.script;
                     document.getElementById('scriptContent').textContent = data.script;
                     output.classList.remove('hidden');
+                    showToast('Script generated successfully!', 'success');
                 } else {
-                    alert(data.detail || data.error || 'Failed to generate script');
+                    showToast(data.detail || data.error || 'Failed to generate script', 'error');
                 }
             } catch (err) {
-                alert('Error: ' + (err.message || 'Failed to generate script'));
+                showToast('Error: ' + (err.message || 'Failed to generate script'), 'error');
             } finally {
                 loading.classList.add('hidden');
                 btn.disabled = false;
@@ -1085,9 +1270,7 @@ HTML_TEMPLATE = '''
 
         function copyScript() {
             navigator.clipboard.writeText(generatedScript);
-            const btn = document.getElementById('copyScriptText');
-            btn.textContent = 'Copied!';
-            setTimeout(() => btn.textContent = 'Copy', 2000);
+            showToast('Script copied to clipboard!', 'success');
         }
     </script>
 </body>
