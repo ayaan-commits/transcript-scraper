@@ -7,9 +7,10 @@ import tempfile
 import shutil
 import json
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+import httpx
 from pydantic import BaseModel
 from groq import Groq
 from typing import Optional
@@ -676,6 +677,29 @@ async def get_user_stats(user_id: str):
     except Exception as e:
         print(f"Error fetching stats: {str(e)}")
         return {"success": True, "total_transcriptions": 0, "tier": "free", "monthly_limit": 5, "monthly_used": 0}
+
+
+# ============ Image Proxy (for CORS-blocked thumbnails) ============
+
+@app.get("/proxy-image")
+async def proxy_image(url: str = Query(..., description="Image URL to proxy")):
+    """Proxy external images to avoid CORS issues (Instagram, TikTok, etc.)"""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+            response = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            response.raise_for_status()
+
+            content_type = response.headers.get("content-type", "image/jpeg")
+            return Response(
+                content=response.content,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=3600"}
+            )
+    except Exception as e:
+        print(f"Error proxying image: {str(e)}")
+        raise HTTPException(status_code=404, detail="Image not found")
 
 
 # ============ HTML Template ============
@@ -1480,7 +1504,7 @@ HTML_TEMPLATE = '''
 
                 container.innerHTML = data.transcriptions.map(t => `
                     <div class="glass rounded-xl p-4 flex gap-4 items-start">
-                        <img src="${t.thumbnail || 'https://via.placeholder.com/120x68'}" class="w-24 h-14 object-cover rounded-lg flex-shrink-0">
+                        <img src="${getProxiedThumbnail(t.thumbnail)}" class="w-24 h-14 object-cover rounded-lg flex-shrink-0">
                         <div class="flex-1 min-w-0">
                             <h4 class="text-white font-medium truncate">${t.title}</h4>
                             <p class="text-xs text-gray-500 mt-1">${new Date(t.created_at).toLocaleDateString()}</p>
@@ -1758,8 +1782,18 @@ HTML_TEMPLATE = '''
             return string.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
         }
 
+        function getProxiedThumbnail(url) {
+            if (!url) return 'https://via.placeholder.com/480x270/1a1a2e/6366f1?text=No+Thumbnail';
+            // Proxy thumbnails from platforms with CORS restrictions
+            if (url.includes('instagram.') || url.includes('cdninstagram.') ||
+                url.includes('tiktok.') || url.includes('tiktokcdn.')) {
+                return '/proxy-image?url=' + encodeURIComponent(url);
+            }
+            return url;
+        }
+
         function displayResult(data) {
-            document.getElementById('thumbnail').src = data.thumbnail || 'https://via.placeholder.com/480x270/1a1a2e/6366f1?text=No+Thumbnail';
+            document.getElementById('thumbnail').src = getProxiedThumbnail(data.thumbnail);
             document.getElementById('videoTitle').textContent = data.title || 'Video';
             document.getElementById('langBadge').querySelector('span').textContent = data.language ? data.language.toUpperCase() : 'N/A';
             document.getElementById('durationBadge').querySelector('span').textContent = data.duration ? formatDuration(data.duration) : '';
