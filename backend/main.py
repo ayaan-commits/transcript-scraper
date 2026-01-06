@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+
 import uuid
 import tempfile
 import shutil
@@ -10,8 +13,16 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from groq import Groq
 from typing import Optional
-from supabase import create_client, Client
 from datetime import datetime
+
+# Try to import supabase (optional - for user accounts feature)
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    Client = None
+    print("Supabase not installed - user features disabled")
 
 # Cookies file path for Instagram/TikTok authentication (optional)
 # Render mounts secret files at /etc/secrets/ (read-only)
@@ -49,8 +60,8 @@ print("Groq Whisper API initialized!")
 # Initialize Supabase client
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")  # Use anon/public key for client-side auth
-supabase: Client = None
-if SUPABASE_URL and SUPABASE_KEY:
+supabase = None
+if SUPABASE_AVAILABLE and SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     print("Supabase initialized!")
 else:
@@ -1315,26 +1326,25 @@ HTML_TEMPLATE = '''
         let isSignUp = false;
 
         // ============ Supabase Configuration ============
-        // These will be set from environment - for now use placeholders
-        const SUPABASE_URL = 'YOUR_SUPABASE_URL';  // Replace with actual URL
-        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';  // Replace with actual key
+        const SUPABASE_URL = '{supabase_url}';
+        const SUPABASE_ANON_KEY = '{supabase_key}';
 
-        let supabase = null;
-        if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && window.supabase) {
-            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let supabaseClient = null;
+        if (SUPABASE_URL && SUPABASE_URL !== '' && window.supabase) {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             checkAuth();
         }
 
         async function checkAuth() {
-            if (!supabase) return;
-            const { data: { user } } = await supabase.auth.getUser();
+            if (!supabaseClient) return;
+            const { data: { user } } = await supabaseClient.auth.getUser();
             if (user) {
                 currentUser = user;
                 updateUserUI(user);
             }
 
             // Listen for auth changes
-            supabase.auth.onAuthStateChange((event, session) => {
+            supabaseClient.auth.onAuthStateChange((event, session) => {
                 if (session?.user) {
                     currentUser = session.user;
                     updateUserUI(session.user);
@@ -1381,7 +1391,7 @@ HTML_TEMPLATE = '''
         }
 
         async function signInWithEmail() {
-            if (!supabase) {
+            if (!supabaseClient) {
                 showToast('User features not configured yet', 'error');
                 return;
             }
@@ -1397,9 +1407,9 @@ HTML_TEMPLATE = '''
             try {
                 let result;
                 if (isSignUp) {
-                    result = await supabase.auth.signUp({ email, password });
+                    result = await supabaseClient.auth.signUp({ email, password });
                 } else {
-                    result = await supabase.auth.signInWithPassword({ email, password });
+                    result = await supabaseClient.auth.signInWithPassword({ email, password });
                 }
 
                 if (result.error) throw result.error;
@@ -1413,12 +1423,12 @@ HTML_TEMPLATE = '''
         }
 
         async function signInWithGoogle() {
-            if (!supabase) {
+            if (!supabaseClient) {
                 showToast('User features not configured yet', 'error');
                 return;
             }
             try {
-                const { error } = await supabase.auth.signInWithOAuth({
+                const { error } = await supabaseClient.auth.signInWithOAuth({
                     provider: 'google',
                     options: { redirectTo: window.location.origin }
                 });
@@ -1429,8 +1439,8 @@ HTML_TEMPLATE = '''
         }
 
         async function signOut() {
-            if (!supabase) return;
-            await supabase.auth.signOut();
+            if (!supabaseClient) return;
+            await supabaseClient.auth.signOut();
             currentUser = null;
             showToast('Signed out successfully', 'info');
             document.getElementById('userDropdown').classList.add('hidden');
@@ -2092,7 +2102,9 @@ HTML_TEMPLATE = '''
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve the web UI."""
-    return HTML_TEMPLATE
+    html = HTML_TEMPLATE.replace('{supabase_url}', SUPABASE_URL or '')
+    html = html.replace('{supabase_key}', SUPABASE_KEY or '')
+    return html
 
 
 if __name__ == "__main__":
