@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const API_URL = 'https://7ef5de0ca26790.lhr.life'
+const API_URL = 'https://transcript-scraper.onrender.com'
 
 function App() {
   const [url, setUrl] = useState('')
@@ -73,12 +73,19 @@ function App() {
       <div className="container mx-auto px-4 py-12">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
-            Video Transcriber
-          </h1>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <img
+              src="/logo.svg"
+              alt="Video Transcriber Logo"
+              className="w-16 h-16 md:w-20 md:h-20 rounded-xl shadow-lg"
+            />
+            <h1 className="text-4xl md:text-5xl font-bold text-white">
+              Video Transcriber
+            </h1>
+          </div>
           <p className="text-gray-300 text-lg max-w-2xl mx-auto">
             Transcribe videos from YouTube, Instagram Reels, TikTok, Twitter/X, and more.
-            Powered by OpenAI Whisper.
+            Powered by AI-powered transcription.
           </p>
         </div>
 
