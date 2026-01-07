@@ -711,6 +711,7 @@ HTML_TEMPLATE = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Transcriber</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%231e1b4b' width='100' height='100' rx='12'/%3E%3Cg transform='translate(20,15)' stroke='%23a855f7' stroke-width='3' fill='none'%3E%3Cpath d='M10 30 C10 10 30 0 30 0 C30 0 50 10 50 30'/%3E%3Crect x='0' y='25' width='15' height='20' rx='3' fill='%23a855f7'/%3E%3Crect x='45' y='25' width='15' height='20' rx='3' fill='%23a855f7'/%3E%3C/g%3E%3Cg transform='translate(50,60)' fill='%239333ea'%3E%3Crect x='-20' y='-10' width='4' height='20' rx='2'/%3E%3Crect x='-10' y='-15' width='4' height='30' rx='2'/%3E%3Crect x='0' y='-8' width='4' height='16' rx='2'/%3E%3Crect x='10' y='-12' width='4' height='24' rx='2'/%3E%3Crect x='20' y='-10' width='4' height='20' rx='2'/%3E%3C/g%3E%3C/svg%3E">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -950,9 +951,26 @@ HTML_TEMPLATE = '''
                 <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 Powered by Groq Whisper
             </div>
-            <h1 class="text-4xl md:text-5xl font-bold text-white mb-3 tracking-tight">
-                Video <span class="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Transcriber</span>
-            </h1>
+            <div class="flex items-center justify-center gap-4 mb-3">
+                <svg class="w-14 h-14 md:w-16 md:h-16 rounded-xl shadow-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <rect fill="#1e1b4b" width="100" height="100" rx="12"/>
+                    <g transform="translate(20,15)" stroke="#a855f7" stroke-width="3" fill="none" stroke-linecap="round">
+                        <path d="M10 30 C10 10 30 0 30 0 C30 0 50 10 50 30"/>
+                        <rect x="0" y="25" width="15" height="20" rx="3" fill="#a855f7"/>
+                        <rect x="45" y="25" width="15" height="20" rx="3" fill="#a855f7"/>
+                    </g>
+                    <g transform="translate(50,60)" fill="#9333ea">
+                        <rect x="-20" y="-10" width="4" height="20" rx="2"/>
+                        <rect x="-10" y="-15" width="4" height="30" rx="2"/>
+                        <rect x="0" y="-8" width="4" height="16" rx="2"/>
+                        <rect x="10" y="-12" width="4" height="24" rx="2"/>
+                        <rect x="20" y="-10" width="4" height="20" rx="2"/>
+                    </g>
+                </svg>
+                <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">
+                    Video <span class="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Transcriber</span>
+                </h1>
+            </div>
             <p class="text-gray-400 text-lg max-w-xl mx-auto">
                 Transform any video into searchable, editable text with AI-powered transcription
             </p>
