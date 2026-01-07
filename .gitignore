@@ -39,6 +39,28 @@ Thumbs.db
 
 # Whisper model cache
 ~/.cache/whisper/
+
+# Old deployment configs (not using)
 hf-spaces/
+railway/
+railway.json
+nixpacks.toml
+replit/
+
+# Windows artifacts
 nul
-node_modules/
+
+# Playwright testing screenshots
+.playwright-mcp/
+
+# Claude settings (local only)
+.claude/settings.local.json
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
